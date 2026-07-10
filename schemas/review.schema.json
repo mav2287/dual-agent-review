@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "dar-review",
+  "description": "Codex post-diff ripple check / verify-the-verifier output. Strict-mode: every property is in required; optional fields are nullable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "findings", "scope_conformance", "coverage"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["block", "revise", "ship"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "category", "claim", "evidence", "file", "line", "fix_recommendation"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["critical", "high", "medium"] },
+          "category": { "type": "string", "enum": ["correctness", "security", "regression", "fail-secure-hole", "out-of-frame", "missing-test"] },
+          "claim": { "type": "string" },
+          "evidence": { "type": "string" },
+          "file": { "type": ["string", "null"] },
+          "line": { "type": ["integer", "null"] },
+          "fix_recommendation": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "scope_conformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["respected_scope_map", "out_of_frame_touches"],
+      "properties": {
+        "respected_scope_map": { "type": "boolean" },
+        "out_of_frame_touches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "why"],
+            "properties": { "file": { "type": "string" }, "why": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inspected", "not_inspected"],
+      "properties": {
+        "inspected": { "type": "array", "items": { "type": "string" } },
+        "not_inspected": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

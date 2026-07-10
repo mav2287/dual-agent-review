@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# dual-agent-review — CLI entrypoint.
+#
+# The command-line side of the plugin: run the review gates by hand. (The plugin runs
+# the blast-radius gate automatically via hooks; these subcommands are for deliberate
+# use.) Uses the Codex CLI as the reviewer; the blast-radius graph is built in pure
+# Node, with graphify used as an accelerator when its graph is present and current.
+#
+#   dar setup    [--repo P]    install dar's skill/commands; if graphify is present,
+#                              wire it into both agents and build/refresh its graph
+#   dar doctor                 check the environment
+#   dar probe    --repo P …    blast-radius triage only (survey vs skip), JSON
+#   dar scope    --repo P --task "…"        Gate 1: survey the blast radius
+#   dar plan-redteam --repo P --plan F …    Gate 2: red-team the written plan
+#   dar ripple   --repo P --scope-map F …   Gate 4: post-diff ripple check
+#   dar canary                 check the reviewer still catches a planted fault
+#
+# Subcommands print a usage/arg error on bad input; there is no per-command --help.
+
+set -euo pipefail
+
+# Resolve this script's real location even when invoked through a symlink
+# (install.sh symlinks bin/dar onto PATH). BSD/macOS has no `readlink -f`.
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+  _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+  _src="$(readlink "$_src")"
+  [[ "$_src" != /* ]] && _src="${_dir}/${_src}"
+done
+DAR_HOME="$(cd -P "$(dirname "$_src")/.." && pwd)"
+export DAR_HOME
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  probe)
+    source "${DAR_HOME}/lib/common.sh"
+    repo=""; args=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in --repo) repo="$2"; shift 2;; *) args+=("$1"); shift;; esac
+    done
+    [[ -n "$repo" ]] || { echo "dar probe: --repo required" >&2; exit 2; }
+    repo="$(cd "$repo" && pwd)"; dar_load_repo_config "$repo"
+    dar_probe "$repo" "${args[@]}" --pretty
+    ;;
+  scope)         exec bash "${DAR_HOME}/scripts/scope.sh" "$@";;
+  plan-redteam)  exec bash "${DAR_HOME}/scripts/plan-redteam.sh" "$@";;
+  ripple)        exec bash "${DAR_HOME}/scripts/ripple.sh" "$@";;
+  canary)        exec bash "${DAR_HOME}/scripts/canary.sh" "$@";;
+  setup)         exec bash "${DAR_HOME}/scripts/setup.sh" "$@";;
+  doctor)        exec bash "${DAR_HOME}/scripts/doctor.sh" "$@";;
+  ""|-h|--help)
+    sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    echo "dar: unknown command '$cmd' (try: doctor, probe, scope, plan-redteam, ripple, canary, setup)" >&2
+    exit 2
+    ;;
+esac

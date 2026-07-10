@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "dar-plan-redteam",
+  "description": "Codex adversarial critique of the integrator's written plan, BEFORE code. Strict-mode: every property is in required; optional fields are nullable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "findings", "coverage"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["block", "revise", "proceed"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "category", "claim", "evidence", "affected_consumer", "fix_recommendation"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["critical", "high", "medium"] },
+          "category": { "type": "string", "enum": ["wrong-root-cause", "missed-consumer", "bad-anchor", "missing-test", "fail-secure-hole", "scope-creep"] },
+          "claim": { "type": "string" },
+          "evidence": { "type": "string" },
+          "affected_consumer": { "type": ["string", "null"] },
+          "fix_recommendation": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_sections_reviewed", "consumers_checked", "not_reviewed"],
+      "properties": {
+        "plan_sections_reviewed": { "type": "array", "items": { "type": "string" } },
+        "consumers_checked": { "type": "array", "items": { "type": "string" } },
+        "not_reviewed": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

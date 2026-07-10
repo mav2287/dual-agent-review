@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "dar-scope-survey",
+  "description": "Codex surveyor output: the blast-radius map the integrator must plan within. Strict-mode: every property is in required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "consumers", "subsystems", "invariants_in_range", "ripple_risks", "plan_constraints", "coverage"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["map-complete", "map-partial"] },
+    "consumers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "why"],
+        "properties": { "file": { "type": "string" }, "why": { "type": "string" } }
+      }
+    },
+    "subsystems": { "type": "array", "items": { "type": "string" } },
+    "invariants_in_range": { "type": "array", "items": { "type": "string" } },
+    "ripple_risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["risk", "severity", "evidence"],
+        "properties": {
+          "risk": { "type": "string" },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium"] },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "plan_constraints": { "type": "array", "items": { "type": "string" } },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files_inspected", "symbols_traced", "not_inspected"],
+      "properties": {
+        "files_inspected": { "type": "array", "items": { "type": "string" } },
+        "symbols_traced": { "type": "array", "items": { "type": "string" } },
+        "not_inspected": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

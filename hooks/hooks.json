@@ -1,0 +1,43 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh",
+            "timeout": 180,
+            "statusMessage": "dual-agent-review: bootstrapping…"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh",
+            "timeout": 30,
+            "statusMessage": "dual-agent-review: checking blast radius…"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/precommit-gate.sh",
+            "timeout": 30,
+            "statusMessage": "dual-agent-review: measuring blast radius…"
+          }
+        ]
+      }
+    ]
+  }
+}
