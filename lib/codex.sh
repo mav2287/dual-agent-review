@@ -21,14 +21,22 @@ dar_codex_run() {
   local prompt
   prompt="$(cat "$role")"$'\n\n---\n\n'"$(cat "$ctx")"
 
+  # Model and reasoning effort are INHERITED from the user's ~/.codex/config.toml —
+  # we do NOT pin them (a hardcoded model goes stale the moment codex ships a newer
+  # one). They are forced ONLY if the user explicitly sets DAR_CODEX_MODEL /
+  # DAR_CODEX_EFFORT. `dar doctor` flags a stale configured model (free, local).
+  local model_opts=()
+  [ -n "${DAR_CODEX_MODEL:-}" ] && model_opts+=(-c "model=${DAR_CODEX_MODEL}")
+  [ -n "${DAR_CODEX_EFFORT:-}" ] && model_opts+=(-c "model_reasoning_effort=${DAR_CODEX_EFFORT}")
+
   # </dev/null is mandatory: codex exec waits forever on stdin EOF otherwise.
   # stderr MUST go to a file (never /dev/null) or a wedge is invisible.
-  # -s read-only is HARDCODED, not taken from config.
+  # -s read-only and web_search=disabled are dar POLICY (a reviewer must not mutate
+  # the tree or need the web), so those are set unconditionally.
   "$DAR_CODEX_BIN" exec \
     -C "$repo" \
     -s read-only \
-    -c model="${DAR_CODEX_MODEL:-gpt-5.5}" \
-    -c model_reasoning_effort="${DAR_CODEX_EFFORT:-xhigh}" \
+    "${model_opts[@]}" \
     -c web_search="${DAR_CODEX_WEBSEARCH:-disabled}" \
     --output-schema "$schema" \
     "$prompt" \

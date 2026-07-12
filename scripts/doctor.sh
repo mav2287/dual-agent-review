@@ -38,11 +38,27 @@ else
   printf "  – graphify not installed (fine) — using the built-in Node graph\n"
 fi
 
-echo "reviewer config:"
+echo "reviewer (codex):"
 # shellcheck source=/dev/null
 source "${DAR_HOME}/config/defaults.sh"
-printf "  model=%s effort=%s sandbox=read-only (hardcoded) web=%s\n" \
-  "$DAR_CODEX_MODEL" "$DAR_CODEX_EFFORT" "$DAR_CODEX_WEBSEARCH"
+# Effective model/effort (inherited from ~/.codex/config.toml unless forced), plus a
+# FREE, LOCAL staleness check against codex's own model cache — no API call, no tokens.
+node -e '
+const fs=require("fs"), os=require("os"), path=require("path"), home=os.homedir();
+let cfgModel=null, cfgEffort=null;
+try{const t=fs.readFileSync(path.join(home,".codex","config.toml"),"utf8");
+  cfgModel=(t.match(/^\s*model\s*=\s*"([^"]+)"/m)||[])[1]||null;
+  cfgEffort=(t.match(/^\s*model_reasoning_effort\s*=\s*"([^"]+)"/m)||[])[1]||null;
+}catch{}
+const fM=process.env.DAR_CODEX_MODEL, fE=process.env.DAR_CODEX_EFFORT;
+console.log(`  model=${fM||cfgModel||"(codex default)"}${fM?" (forced)":" (inherited)"}  effort=${fE||cfgEffort||"(codex default)"}  sandbox=read-only  web=${process.env.DAR_CODEX_WEBSEARCH}`);
+if(!fM){ try{
+  const models=(JSON.parse(fs.readFileSync(path.join(home,".codex","models_cache.json"),"utf8")).models)||[];
+  const latest=models[0];
+  if(latest && cfgModel && latest.slug!==cfgModel)
+    console.log(`  ⚠ newer codex model available: ${latest.slug} (${latest.display_name}); you are on ${cfgModel} — update ~/.codex/config.toml to review with it`);
+}catch{} }
+' 2>/dev/null || printf "  (could not read codex config)\n"
 
 if [[ -n "$REPO" ]]; then
   REPO="$(cd "$REPO" && pwd)"

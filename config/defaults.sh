@@ -11,8 +11,12 @@
 # process sees none of it and the hot-path tripwire silently disappears.
 
 # ── Reviewer (Codex) ────────────────────────────────────────────────────────
-export DAR_CODEX_MODEL="${DAR_CODEX_MODEL:-gpt-5.5}"
-export DAR_CODEX_EFFORT="${DAR_CODEX_EFFORT:-xhigh}"
+# Model + effort are INHERITED from ~/.codex/config.toml by default (empty = don't
+# pass -c, so codex uses your configured model). Set these only to FORCE a specific
+# reviewer model/effort. Pinning is avoided on purpose — a hardcoded model goes stale.
+export DAR_CODEX_MODEL="${DAR_CODEX_MODEL:-}"
+export DAR_CODEX_EFFORT="${DAR_CODEX_EFFORT:-}"
+# web_search stays off: a code review shouldn't hit the internet. (dar policy)
 export DAR_CODEX_WEBSEARCH="${DAR_CODEX_WEBSEARCH:-disabled}"
 # NOTE: the sandbox is HARDCODED to read-only in lib/codex.sh and is deliberately
 # NOT configurable here — an adversarial reviewer must never mutate what it judges.
