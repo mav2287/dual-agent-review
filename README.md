@@ -17,10 +17,13 @@ do; the second opinion shows up on its own when a change warrants it.
   change's real **blast radius** — how many files/subsystems depend on it — instead
   of using diff size. A one-line change to a hot symbol gets reviewed; a 300-line
   leaf change doesn't.
-- **Triggers the review automatically.** A `Stop` hook runs after Claude finishes: on
-  a high-blast (or unmeasurable) change it blocks completion and tells Claude to run
-  an adversarial Codex review (`/codex:adversarial-review` or `dar ripple`) before
-  finishing. Contained changes pass silently.
+- **Enforces the review automatically.** A `Stop` hook runs after Claude finishes: on
+  a high-blast change it blocks completion **until an actual `dar ripple` review has
+  run for that exact diff** — it verifies a review receipt, so it can't be satisfied by
+  ignoring it, and fixing findings (which changes the diff) forces a fresh review.
+  Contained changes pass silently. A once-per-session `UserPromptSubmit` reminder nudges
+  you to run the upstream gates (`dar scope`, `dar plan-redteam`) on high-blast work,
+  since those can't be hook-enforced.
 - **Stays a check, not a rubber stamp.** Codex runs read-only and adversarially; an
   on-demand `dar canary` exercises the reviewer on a planted fail-open fixture to
   confirm it still catches bugs; and your own deterministic gates (tests/typecheck)
@@ -100,12 +103,13 @@ survey is a few bounded minutes, so the gate is deliberately biased toward revie
 
 ```
 .claude-plugin/      plugin.json + marketplace.json (Claude Code plugin manifest)
-hooks/hooks.json     Stop gate (automatic review) + SessionStart bootstrap + git-commit gate
+hooks/hooks.json     Stop gate (hard-verified review) + UserPromptSubmit advisory + SessionStart bootstrap + git-commit gate
 bin/dar              CLI entrypoint (added to the Claude session's PATH by the plugin)
 lib/graph.mjs        the in-house pure-Node dependency graph (default backend)
 lib/blast-radius.mjs the survey-vs-skip probe (native graph, or graphify if current)
 lib/codex.sh         Codex wrapper for dar's scope/plan-redteam/ripple/canary (read-only, absolute-path)
-scripts/             stop-gate, precommit-gate, bootstrap; gates (scope/plan-redteam/ripple); canary, setup, doctor
+lib/fingerprint.sh   diff fingerprint + review receipt (how the Stop gate hard-verifies)
+scripts/             stop-gate, prompt-advisory, precommit-gate, bootstrap; gates (scope/plan-redteam/ripple); canary, setup, doctor
 schemas/             structured-output JSON Schemas (scope, plan-redteam, review)
 prompts/             adversarial role prompts (skepticism-first, no style nits)
 skills/dual-agent-review/SKILL.md   orchestration skill (the loop, caps, escalation)

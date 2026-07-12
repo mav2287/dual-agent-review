@@ -6,6 +6,8 @@
 # Usage: dar ripple --repo <path> [--diff-base <ref>] [--scope-map <file>]
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/common.sh"
+# shellcheck source=/dev/null
+source "${DAR_HOME}/lib/fingerprint.sh"
 
 REPO="" DIFF_BASE="HEAD" SCOPE_MAP=""
 while [[ $# -gt 0 ]]; do
@@ -50,6 +52,10 @@ if dar_codex_run "${DAR_HOME}/prompts/ripple.md" "$CTX" "${DAR_HOME}/schemas/rev
   CONFORM="$(dar_json scope_conformance.respected_scope_map "$OUT")"
   echo "→ verdict: ${VERDICT}   scope-respected: ${CONFORM}   (findings: $OUT)"
   dar_json findings "$OUT" | node -e 'JSON.parse(require("fs").readFileSync(0)).forEach(f=>console.log(`  [${f.severity}/${f.category}] ${f.claim}`))' 2>/dev/null || true
+  # A real review completed for this working state → record the receipt so the Stop
+  # gate can verify it actually ran. Written regardless of verdict: fixing findings
+  # changes the diff, which changes the fingerprint and forces a fresh review.
+  dar_write_receipt "$REPO"
   [[ "$VERDICT" == "ship" ]] || exit 3
 else
   rc=$?; echo "dar ripple: codex failed (rc=$rc); see $ERR" >&2; exit "$rc"

@@ -80,16 +80,23 @@ history:
 ## How it's enforced
 The plugin ships three hooks (`hooks/hooks.json`), so the gate is automatic by
 default (`DAR_ENFORCE=off` disables it):
-- **`Stop` hook** — the automatic engine. After Claude responds, it runs the fast
-  probe; a high-blast (or unmeasurable) change blocks completion and makes Claude run
-  the adversarial review before finishing. Fail-secure: if the change can't be
-  measured (node/probe unavailable) it blocks rather than allowing. Blocks once per
-  distinct change-state (no re-nagging) and honors `stop_hook_active`.
-- **`PreToolUse(git commit)` hook** — surfaces the same signal at commit time
-  (advisory by default; `DAR_ENFORCE=block` makes it refuse, `off` silences it).
-- **`SessionStart` hook** — bootstrap that runs each startup, with marker files so the
-  heavier steps happen once per user/project (PATH, best-effort codex-plugin-cc,
-  graphify if present).
+- **`Stop` hook** — the automatic engine, and it **hard-verifies**. After Claude
+  responds, it runs the fast probe; a high-blast change blocks completion **until a
+  review receipt written by an actual `dar ripple` matches the current diff** (the
+  receipt is keyed to the tracked diff + untracked file *contents*). It does not
+  self-satisfy — ignoring the block does not clear it — and changing the diff (e.g.
+  fixing findings) invalidates the receipt and forces a fresh review. An *unmeasurable*
+  state (node/probe down) can't be cleared by a receipt, so there it fails secure by
+  blocking once (advisory), honoring `stop_hook_active`.
+- **`UserPromptSubmit` hook** — a light, once-per-session reminder to run the upstream
+  gates (`dar scope`, `dar plan-redteam`) on high-blast work. Advisory only; those
+  gates can't be hook-enforced (no "a plan was produced" event, especially for informal
+  planning), so this + the skill's standing trigger are how they get run.
+- **`PreToolUse(git commit)` hook** — surfaces the same blast-radius signal at commit
+  time (advisory by default; `DAR_ENFORCE=block` refuses, `off` silences).
+- **`SessionStart` hook** — bootstrap that runs each startup, with a marker so the
+  heavier step (best-effort codex-plugin-cc install) happens once (also puts `dar` on
+  the session PATH). It does not touch graphify.
 
 The slash commands and the skill remain available for running the full loop
 deliberately. Deterministic gates (tests/typecheck) stay the real merge authority.

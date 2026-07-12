@@ -13,6 +13,18 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/prompt-advisory.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
@@ -21,7 +33,7 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh",
             "timeout": 30,
-            "statusMessage": "dual-agent-review: checking blast radius…"
+            "statusMessage": "dual-agent-review: verifying review…"
           }
         ]
       }

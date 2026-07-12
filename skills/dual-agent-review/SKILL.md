@@ -15,14 +15,22 @@ adversary** — wide repo view, run read-only via the `dar` CLI. Neither reviews
 own work; deterministic gates (tests/typecheck/etc.) are the final merge authority,
 never a model's "looks good."
 
-**The after-the-fact review is automatic; the upstream gates are deliberate.** A
-`Stop` hook fires after you respond: on a high-blast change it blocks completion and
-tells you to run the adversarial review before finishing. **When you see that block,
-do exactly what it says** — run `/codex:adversarial-review` (preferred) or
-`dar ripple --repo . --diff-base HEAD`, address any real findings, then finish. The
-scope-survey and plan-red-team gates below are NOT automatic — run them deliberately
-when you want the wide view *before* a large change; the Stop hook covers the
-post-change case on its own.
+**The post-diff review is hook-enforced; the upstream gates are behavioral.**
+
+A `Stop` hook fires after you respond: on a high-blast change it blocks completion
+until an actual `dar ripple` review has run for that exact diff. **When you see that
+block, run `dar ripple --repo . --diff-base HEAD`** — that is what clears the gate
+(a deeper `/codex:adversarial-review` pass is fine too, but only `dar ripple` records
+the review) — address any real findings, then finish. Fixing findings changes the
+diff, so the gate will (correctly) ask for a fresh review of the new state.
+
+**Standing trigger for the upstream gates (NOT hook-enforced — this is your own
+behavior):** whenever you produce a plan for a change that will touch high-blast
+areas — auth, migrations, shared modules, public interfaces, cross-subsystem work —
+run `dar plan-redteam` on it *before writing code*, and `dar scope` before you even
+plan. This applies **whether the plan came from formal plan mode or you were simply
+asked to "put a plan together"** — there is no hook for informal planning, so it's on
+you to run it. Skip it for clearly contained, mechanical changes.
 
 `REPO` below is the target repo root (usually `$(pwd)`). Every `dar` call is a
 normal Bash tool call.
