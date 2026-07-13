@@ -85,7 +85,15 @@ assert_contains ".dar.thresholds edit surveys as hot-path" "$reasons" "hot-path"
 reasons="$(hot_probe .dar.config.sh)"
 assert_contains ".dar.config.sh edit surveys as hot-path" "$reasons" "hot-path"
 
-# 10) The CLI round-trip.
+# 10) DAR_EXCLUDE applies to MANUAL probes too (not just the session delta): a
+#     diff-base probe over excluded noise must read as no-changes/contained.
+printf 'DAR_EXCLUDE=^noisedir/\n' >> "$R/.dar.thresholds"
+mkdir -p "$R/noisedir"; echo junk > "$R/noisedir/artifact.bin"
+probe_out="$(bash -c 'source "$0/lib/trust.sh"; source "$0/lib/thresholds.sh"; source "$0/config/defaults.sh"; dar_load_thresholds "$1" 2>/dev/null; node "$0/lib/blast-radius.mjs" --repo "$1" --files noisedir/artifact.bin' "$DAR_ROOT" "$R" \
+  | node -e 'const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(`${d.survey} ${d.reasons.join(";")}`)')"
+assert_contains "excluded noise probes as contained" "$probe_out" "no-changes"
+
+# 11) The CLI round-trip.
 out="$(bash "$DAR_ROOT/bin/dar" untrust --repo "$R")"
 assert_contains "dar untrust" "$out" "untrusted:"
 out="$(bash "$DAR_ROOT/bin/dar" trust --repo "$R")"
