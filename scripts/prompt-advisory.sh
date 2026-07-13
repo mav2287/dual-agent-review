@@ -20,5 +20,6 @@ marker="${DATA}/advised-${sid}"
 [[ -f "$marker" ]] && exit 0
 touch "$marker" 2>/dev/null || true
 
-echo "dual-agent-review: for high-blast work (auth, migrations, shared modules, public interfaces, cross-subsystem changes), run 'dar scope' before planning and 'dar plan-redteam' on the plan before coding — for both formal plans and 'put a plan together' requests. Skip for contained/mechanical changes. The post-diff Codex review is enforced automatically."
+ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+echo "dual-agent-review: for high-blast work (auth, migrations, shared modules, public interfaces, cross-subsystem changes), run 'dar scope' before planning and 'dar plan-redteam' on the plan before coding — for both formal plans and 'put a plan together' requests. Skip for contained/mechanical changes. The post-diff Codex review is enforced automatically. (dar lives at ${ROOT}/bin/dar if not on PATH.)"
 exit 0

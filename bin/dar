@@ -12,9 +12,14 @@
 #   dar probe    --repo P …    blast-radius triage only (survey vs skip), JSON
 #   dar scope    --repo P --task "…"        Gate 1: survey the blast radius
 #   dar plan-redteam --repo P --plan F …    Gate 2: red-team the written plan
-#   dar ripple   --repo P --scope-map F …   Gate 4: post-diff ripple check
+#   dar ripple   --repo P [--baseline F | --diff-base R] [--scope-map F]
+#                              Gate 4: post-diff ripple check (writes the receipt)
 #   dar verify   --repo P      run the repo's configured deterministic gates
 #   dar canary                 check the reviewer still catches a planted fault
+#   dar trust    [--repo P] | --list       allow P's .dar.thresholds/.dar.config.sh
+#   dar untrust  [--repo P]                revoke that
+#   dar baseline [--repo P]    re-capture the session baseline(s) for P — use after
+#                              a deliberate branch switch or large rebase
 #
 # Subcommands print a usage/arg error on bad input; there is no per-command --help.
 
@@ -51,11 +56,52 @@ case "$cmd" in
   canary)        exec bash "${DAR_HOME}/scripts/canary.sh" "$@";;
   setup)         exec bash "${DAR_HOME}/scripts/setup.sh" "$@";;
   doctor)        exec bash "${DAR_HOME}/scripts/doctor.sh" "$@";;
+  trust|untrust)
+    # shellcheck source=/dev/null
+    source "${DAR_HOME}/lib/trust.sh"
+    repo="." list=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in --repo) repo="$2"; shift 2;; --list) list=1; shift;; *) echo "dar $cmd: unknown arg $1" >&2; exit 2;; esac
+    done
+    if [[ "$cmd" == "trust" && "$list" == "1" ]]; then dar_trust_list
+    elif [[ "$cmd" == "trust" ]]; then dar_trust_add "$repo"
+    else dar_trust_remove "$repo"
+    fi
+    ;;
+  baseline)
+    # Re-frame the session: re-capture every existing session baseline for this repo
+    # at the CURRENT worktree state. Deliberate escape hatch for branch switches and
+    # large rebases the Stop gate (rightly) refuses to measure — it is visible in the
+    # session transcript, and anything changed AFTER re-baselining is gated again.
+    # shellcheck source=/dev/null
+    source "${DAR_HOME}/lib/fingerprint.sh"
+    repo="."
+    while [[ $# -gt 0 ]]; do
+      case "$1" in --repo) repo="$2"; shift 2;; *) echo "dar baseline: unknown arg $1" >&2; exit 2;; esac
+    done
+    command -v node >/dev/null 2>&1 || { echo "dar baseline: node required" >&2; exit 2; }
+    found=0 prev=""
+    # Baselines may have been keyed on either the physical or logical project path.
+    for r in "$(cd "$repo" && pwd -P)" "$(cd "$repo" && pwd -L)"; do
+      [[ "$r" == "$prev" ]] && continue; prev="$r"
+      key="$(dar_projkey "$r")"
+      for f in "$(dar_state_dir)/baseline-${key}-"*; do
+        [[ -f "$f" ]] || continue
+        found=1
+        if node "${DAR_HOME}/lib/baseline.mjs" capture --repo "$r" --out "$f" >/dev/null; then
+          echo "re-baselined: $f"
+        else
+          echo "dar baseline: FAILED to re-capture $f" >&2; exit 1
+        fi
+      done
+    done
+    [[ "$found" == "1" ]] || echo "dar baseline: no session baselines exist for this repo (one is captured automatically at session start)"
+    ;;
   ""|-h|--help)
-    sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     ;;
   *)
-    echo "dar: unknown command '$cmd' (try: doctor, probe, scope, plan-redteam, ripple, verify, canary, setup)" >&2
+    echo "dar: unknown command '$cmd' (try: doctor, probe, scope, plan-redteam, ripple, verify, canary, trust, untrust, baseline, setup)" >&2
     exit 2
     ;;
 esac
