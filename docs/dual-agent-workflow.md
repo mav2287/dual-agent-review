@@ -84,17 +84,27 @@ history:
 ## How it's enforced
 The plugin ships four hooks (`hooks/hooks.json`), so the gate is automatic by
 default (`DAR_ENFORCE=off` disables it):
-- **`Stop` hook** — the automatic engine, and it **hard-verifies**. After Claude
-  responds, it runs the fast probe; a high-blast change blocks completion **until a
-  `dar ripple` review returns a `ship` verdict for the current diff** — the receipt
-  records the verdict and is keyed to the tracked diff + untracked file *contents*, so
-  a `block`/`revise` review does not clear the gate. It does not self-satisfy, and
-  changing the diff (e.g. fixing findings) forces a fresh review. If the same unshipped
-  diff is blocked past a bounded cap, it stops looping (honoring `stop_hook_active`,
-  staying under Claude Code's consecutive-block override), records a `blocked-unresolved`
-  marker, and escalates to the human rather than silently passing. An *unmeasurable*
-  state (node/probe down) can't be cleared by a receipt, so there it fails secure by
-  blocking once (advisory).
+- **`Stop` hook** — the automatic engine. After Claude responds it runs the fast probe
+  on the session's changes; on a high-blast change with no shipping review it acts per
+  `DAR_ENFORCE`:
+  - **`advise` (DEFAULT)** — injects ONE visible, recorded reminder to run `dar ripple`
+    and lets Claude finish. A DIRECTIVE, not a trap. This is the default because a
+    *forcing* Stop hook shifts the agent's focus onto whatever it blocks on, and an
+    imperfect measurement (a missing baseline from `/reload-plugins`, a parallel lane's
+    files in a shared worktree) then becomes a hard trap that also pressures the agent
+    toward laundering the gate. Advising keeps the signal loud without the trap. It also
+    keeps faith with this project's own thesis: deterministic gates are the merge
+    authority; the LLM review is a signal, never itself a hard merge gate.
+  - **`block` (opt-in)** — **hard-verifies**: refuses completion **until a `dar ripple`
+    review returns a `ship` verdict for the current state** — the receipt records the
+    verdict and is keyed to the tracked diff + untracked file *contents*, so a
+    `block`/`revise` review does not clear it, and changing the diff forces a fresh
+    review. If the same unshipped change is blocked past a bounded cap it stops looping
+    (honoring `stop_hook_active`, staying under Claude Code's consecutive-block
+    override), records a `blocked-unresolved` marker, and escalates to the human rather
+    than silently passing. An *unmeasurable* state (node/probe down) can't be cleared by
+    a receipt, so there it blocks once. Use `block` on repos where you trust the scoping
+    and want the guarantee.
 - **`UserPromptSubmit` hook** — a light, once-per-session reminder to run the upstream
   gates (`dar scope`, `dar plan-redteam`) on high-blast work. Advisory only; those
   gates can't be hook-enforced (no "a plan was produced" event, especially for informal

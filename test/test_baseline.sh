@@ -26,7 +26,7 @@ OUT_F="$(mktemp)"; ERR_F="$(mktemp)"
 run_stop() { # [ACTIVE] [EXTRA_ENV as VAR=VAL ...]
   local active="${1:-false}"; shift 2>/dev/null || true
   printf '{"stop_hook_active":%s,"session_id":"sessA"}' "$active" \
-    | env "$@" CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
+    | DAR_ENFORCE=block env "$@" CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
       bash "$DAR_ROOT/scripts/stop-gate.sh" >"$OUT_F" 2>"$ERR_F"
 }
 OUT() { cat "$OUT_F"; }
@@ -132,7 +132,7 @@ node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R4" --out "$BF4" >/dev/null
 echo '{"v":1}' > "$R4/we,ird.json"          # opaque control file, comma name
 git_commit "$R4" "commit the unsafe-named session change"
 out="$(printf '{"stop_hook_active":false,"session_id":"sessU"}' \
-  | CLAUDE_PROJECT_DIR="$R4" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
+  | DAR_ENFORCE=block CLAUDE_PROJECT_DIR="$R4" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_contains "committed comma-named change still blocks" "$out" '"decision":"block"'
 rm -rf "$R4"
@@ -152,7 +152,7 @@ assert_contains "deletion reported as deletion" "$d" 'deletedUntracked'
 fpB="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R5" --baseline "$BF5")"
 assert_true "deletion moves the fingerprint" test "$fpA" != "$fpB"
 out="$(printf '{"stop_hook_active":false,"session_id":"sessD"}' \
-  | CLAUDE_PROJECT_DIR="$R5" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
+  | DAR_ENFORCE=block CLAUDE_PROJECT_DIR="$R5" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_contains "deletion gates at Stop" "$out" '"decision":"block"'
 rm -rf "$R5"
@@ -191,12 +191,13 @@ BF7="$(dar_baseline_path "$R7" sessN)"
 node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R7" --out "$BF7" >/dev/null
 echo "remember the milk" > "$R7/notes.txt"
 out="$(printf '{"stop_hook_active":false,"session_id":"sessN"}' \
-  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
+  | DAR_ENFORCE=block CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_not_contains "new inert note passes silently" "$out" '"decision":"block"'
 echo 'module.exports = () => true' > "$R7/new-code.js"
+# (block mode: this assertion is about DETECTION — a new code file must survey.)
 out="$(printf '{"stop_hook_active":false,"session_id":"sessN"}' \
-  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
+  | DAR_ENFORCE=block CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_contains "new code file still gates" "$out" '"decision":"block"'
 rm -rf "$R7"

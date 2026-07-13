@@ -16,7 +16,7 @@ echo '{"v":2}' > "$R/config.json"   # working change to an opaque control file �
 OUT_F="$(mktemp)"; ERR_F="$(mktemp)"
 run_stop() {
   printf '{"stop_hook_active":%s}' "$1" \
-    | CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_MAX_STOP_BLOCKS="${2:-4}" DAR_MAX_STOP_BLOCKS_NONSHIP="${2:-4}" \
+    | CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_MAX_STOP_BLOCKS="${2:-4}" DAR_MAX_STOP_BLOCKS_NONSHIP="${2:-4}" DAR_ENFORCE=block \
       bash "$DAR_ROOT/scripts/stop-gate.sh" >"$OUT_F" 2>"$ERR_F"
 }
 OUT() { cat "$OUT_F"; }
@@ -48,5 +48,18 @@ run_stop true 2                            # over cap, active → escalate, don'
 assert_not_contains "over cap + active → no block (escalates)" "$(OUT)" '"decision":"block"'
 assert_contains "escalation warns the human on stderr" "$(ERR)" "WITHOUT A PASSING REVIEW"
 assert_true "blocked-unresolved marker recorded" test -f "$(dar_blocked_marker_path "$R")"
+
+# 5) DEFAULT is ADVISE, not block: the same unreviewed high-blast change must NOT
+#    block — it emits a non-blocking, recorded advisory and lets Claude finish. This
+#    is the fix for forcing Stop hooks shifting the agent's focus.
+DAR_STATE_DIR="$(mktemp -d)"
+advise_out() { printf '{"stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null; }
+out="$(advise_out)"
+assert_not_contains "advise (default) does NOT block" "$out" '"decision":"block"'
+assert_contains "advise (default) surfaces a recorded reminder" "$out" 'systemMessage'
+assert_contains "advisory names the review command" "$out" 'ripple'
+# off stays silent.
+off_out="$(printf '{"stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" DAR_ENFORCE=off bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
+assert_eq "off → silent" "" "$off_out"
 
 finish

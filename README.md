@@ -23,17 +23,21 @@ do; the second opinion shows up on its own when a change warrants it.
   committing a change does not launder it past the review. Pre-existing dirty files
   and untracked build junk are inert: a repo with thousands of stale artifacts costs
   nothing per turn.
-- **Enforces the review automatically.** A `Stop` hook runs after Claude finishes: on
-  a high-blast change it blocks completion **until a `dar ripple` review has returned a
-  `ship` verdict for that exact state** (the receipt is keyed to a fingerprint of the
-  session's tracked diff *and* its new untracked contents, so it can't be satisfied by
-  ignoring findings; a `block`/`revise` review does not clear the gate). Fixing findings
-  changes the fingerprint and forces a fresh review. If the same unshipped change is
-  blocked repeatedly, the gate stops looping, records an auditable `blocked-unresolved`
-  state, and escalates loudly to you rather than silently letting the change through.
-  Contained changes pass silently. A once-per-session `UserPromptSubmit` reminder nudges
-  you to run the upstream gates (`dar scope`, `dar plan-redteam`) on high-blast work,
-  since those can't be hook-enforced.
+- **Surfaces the review automatically — as a directive, not a trap.** A `Stop` hook
+  runs after Claude finishes: on a high-blast change with no shipping review it injects
+  **one visible, recorded reminder** to run `dar ripple` and lets Claude finish. This is
+  the default (`DAR_ENFORCE=advise`) on purpose — a *forcing* Stop hook shifts the
+  agent's focus onto whatever it's blocking on, and when scoping is imperfect (a missing
+  baseline, a parallel lane's files) that turns a measurement edge case into a hard trap.
+  Advising keeps the signal loud without the trap. **`DAR_ENFORCE=block`** is the opt-in
+  hard gate for repos where you trust the scoping and want the guarantee: it refuses
+  completion **until a `dar ripple` review returns a `ship` verdict for that exact
+  state** (the receipt is keyed to a fingerprint of the session's tracked diff *and* its
+  new untracked contents; a `block`/`revise` review does not clear it), and if the same
+  change is blocked repeatedly it stops looping, records an auditable `blocked-unresolved`
+  state, and escalates to you rather than silently passing. Contained changes are silent
+  in both modes. A once-per-session `UserPromptSubmit` reminder nudges you to run the
+  upstream gates (`dar scope`, `dar plan-redteam`) on high-blast work.
 - **Stays a check, not a rubber stamp.** Codex runs read-only and adversarially; an
   on-demand `dar canary` exercises the reviewer on a planted fail-open fixture to
   confirm it still specifically identifies that hole. The automatic gate enforces review
@@ -58,12 +62,14 @@ it, `dar setup` will wire it in as a richer accelerator, but the plugin never in
 or runs it on its own. Run `dar doctor --repo <path>` to check the environment.
 
 **Start a fresh session after installing** — the hooks and the session baseline are
-wired up by the `SessionStart` hook, and `/reload-plugins` does not re-run it.
+wired up by the `SessionStart` hook, and `/reload-plugins` does not re-run it (a
+session without a baseline still works, but the Stop hook can't isolate that session's
+work, so it advises against the whole working tree until you start fresh).
 
-After that the review fires on its own when a change is big enough — you don't type a
-review command yourself. `DAR_ENFORCE=off` turns the automation off; `block` makes the
-commit gate refuse instead of advise (a `ship` receipt clears it either way). The
-slash commands below are optional.
+After that the reminder fires on its own when a change is big enough — you don't type a
+review command yourself. `DAR_ENFORCE` controls the Stop and commit hooks: `advise`
+(default) surfaces a non-blocking reminder, `block` makes them refuse until a `ship`
+review exists, `off` silences them. The slash commands below are optional.
 
 ## The graph backend
 
