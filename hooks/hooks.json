@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh"],
             "timeout": 180,
             "statusMessage": "dual-agent-review: bootstrapping…"
           }
@@ -19,7 +20,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/prompt-advisory.sh",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/prompt-advisory.sh"],
             "timeout": 10
           }
         ]
@@ -31,7 +33,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh"],
             "timeout": 30,
             "statusMessage": "dual-agent-review: verifying review…"
           }
@@ -40,11 +43,13 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash(git commit*)",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/precommit-gate.sh",
+            "if": "Bash(git *)",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/precommit-gate.sh"],
             "timeout": 30,
             "statusMessage": "dual-agent-review: measuring blast radius…"
           }

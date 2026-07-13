@@ -46,7 +46,14 @@ yarn\.lock$
 docker-compose
 (^|/)\.github/workflows/
 (^|/)\.env
-tsconfig.*\.json$'
+tsconfig.*\.json$
+(^|/)prompts/
+(^|/)skills/
+(^|/)commands/
+(^|/)hooks?/
+(^|/)\.claude/
+(^|/)\.codex/
+(^|/)(CLAUDE|AGENTS|GEMINI)\.md$'
 fi
 export DAR_HOTPATHS
 

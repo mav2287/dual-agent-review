@@ -25,10 +25,37 @@ fi
 #    routes to. Tolerates absence/failure — the automatic review still works via
 #    `dar ripple` if the plugin isn't present.
 CODEX_PLUGIN_DONE="${DATA}/.codex-plugin-installed"
+CODEX_PLUGIN_RETRY="${DATA}/.codex-plugin-retry"   # epoch of the last FAILED attempt
+CODEX_RETRY_COOLDOWN="${DAR_CODEX_RETRY_COOLDOWN:-86400}"  # retry at most once/day on failure
+
+# Independently verify the codex plugin is actually installed — a zero exit from
+# `plugin install` is not proof (finding #13). Only the done-marker suppresses retries,
+# and it is written ONLY after this verification succeeds.
+codex_plugin_installed() {
+  command -v claude >/dev/null 2>&1 || return 1
+  claude plugin list 2>/dev/null | grep -qi 'codex'
+}
+
 if [[ ! -f "$CODEX_PLUGIN_DONE" ]] && command -v claude >/dev/null 2>&1; then
-  claude plugin marketplace add openai/codex-plugin-cc >/dev/null 2>&1 || true
-  claude plugin install codex@openai-codex >/dev/null 2>&1 || true
-  touch "$CODEX_PLUGIN_DONE"
+  if codex_plugin_installed; then
+    touch "$CODEX_PLUGIN_DONE"                       # already present → stop trying
+    rm -f "$CODEX_PLUGIN_RETRY" 2>/dev/null || true
+  else
+    now="$(date +%s 2>/dev/null || echo 0)"
+    last="$(cat "$CODEX_PLUGIN_RETRY" 2>/dev/null || echo 0)"
+    # Bounded COOLDOWN (not a permanent attempt cap): a transient failure is retried in
+    # a later session once the cooldown elapses, so we never give up forever.
+    if [[ $(( now - last )) -ge $CODEX_RETRY_COOLDOWN ]]; then
+      claude plugin marketplace add openai/codex-plugin-cc >/dev/null 2>&1 || true
+      claude plugin install codex@openai-codex >/dev/null 2>&1 || true
+      if codex_plugin_installed; then
+        touch "$CODEX_PLUGIN_DONE"                   # VERIFIED installed → done
+        rm -f "$CODEX_PLUGIN_RETRY" 2>/dev/null || true
+      else
+        echo "$now" > "$CODEX_PLUGIN_RETRY" 2>/dev/null || true   # failed → cooldown, retry later
+      fi
+    fi
+  fi
 fi
 
 echo "dual-agent-review: active. High-blast changes are blocked at completion with instructions to run the Codex check (/codex:adversarial-review or dar ripple). The /dar-* slash commands are optional." >&2

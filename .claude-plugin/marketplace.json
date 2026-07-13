@@ -1,10 +1,13 @@
 {
   "name": "mav2287-dual-agent-review",
   "owner": { "name": "mav2287", "url": "https://github.com/mav2287" },
+  "metadata": {
+    "description": "Marketplace for dual-agent-review — an automatic Codex check-and-balance for Claude Code that reviews changes by real blast radius."
+  },
   "plugins": [
     {
       "name": "dual-agent-review",
-      "source": { "source": "local", "path": "./" },
+      "source": "./",
       "description": "An automatic Codex check-and-balance for Claude Code — pairs Claude's focused coding with Codex's wider scope vision, reviewing changes by real blast radius."
     }
   ]

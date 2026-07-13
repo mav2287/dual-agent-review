@@ -20,6 +20,22 @@ MODE="${DAR_ENFORCE:-advise}"
 
 [[ "$MODE" == "off" ]] && exit 0
 
+# Self-guard (defense in depth). The hook's `if: "Bash(git commit *)"` already scopes
+# this to git-commit calls, but that filter is fail-OPEN — a command it can't parse
+# runs the gate anyway. Read the Bash command from the hook's stdin JSON and skip
+# early ONLY when we can positively confirm there is no `git … commit` in it (handles
+# compound commands like `cd x && git commit` and `git -C x commit`). On any doubt —
+# no stdin, no node, parse failure — we do NOT skip: running the gate is conservative.
+if [ ! -t 0 ] && command -v node >/dev/null 2>&1; then
+  _cmd="$(cat 2>/dev/null | node -e 'try{const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(String((d.tool_input&&d.tool_input.command)||""))}catch{process.stdout.write("")}' 2>/dev/null || true)"
+  if [ -n "$_cmd" ]; then
+    case "$_cmd" in
+      *git*commit*) : ;;   # possibly a git commit → run the gate
+      *) exit 0 ;;         # definitely not a git commit → nothing to measure
+    esac
+  fi
+fi
+
 emit() { # MESSAGE
   echo "$1" >&2
   [[ "$MODE" == "block" ]] && exit 2 || exit 1

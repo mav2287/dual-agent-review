@@ -18,16 +18,22 @@ do; the second opinion shows up on its own when a change warrants it.
   of using diff size. A one-line change to a hot symbol gets reviewed; a 300-line
   leaf change doesn't.
 - **Enforces the review automatically.** A `Stop` hook runs after Claude finishes: on
-  a high-blast change it blocks completion **until an actual `dar ripple` review has
-  run for that exact diff** — it verifies a review receipt, so it can't be satisfied by
-  ignoring it, and fixing findings (which changes the diff) forces a fresh review.
-  Contained changes pass silently. A once-per-session `UserPromptSubmit` reminder nudges
-  you to run the upstream gates (`dar scope`, `dar plan-redteam`) on high-blast work,
-  since those can't be hook-enforced.
+  a high-blast change it blocks completion **until a `dar ripple` review has returned a
+  `ship` verdict for that exact diff** (the receipt is keyed to a fingerprint of the
+  tracked diff *and* untracked file contents, so it can't be satisfied by ignoring
+  findings; a `block`/`revise` review does not clear the gate). Fixing findings changes
+  the diff and forces a fresh review. If the same unshipped diff is blocked repeatedly,
+  the gate stops looping, records an auditable `blocked-unresolved` state, and escalates
+  loudly to you rather than silently letting the change through. Contained changes pass
+  silently. A once-per-session `UserPromptSubmit` reminder nudges you to run the upstream
+  gates (`dar scope`, `dar plan-redteam`) on high-blast work, since those can't be
+  hook-enforced.
 - **Stays a check, not a rubber stamp.** Codex runs read-only and adversarially; an
   on-demand `dar canary` exercises the reviewer on a planted fail-open fixture to
-  confirm it still catches bugs; and your own deterministic gates (tests/typecheck)
-  remain the real merge authority — never a model's "looks good."
+  confirm it still specifically identifies that hole. The automatic gate enforces review
+  *workflow* state — that an independent review ran and shipped — **not** that your tests
+  pass. Your own deterministic gates (tests/typecheck/lint, via `dar verify`) remain the
+  real merge authority — never a model's "looks good."
 
 ## Install
 
@@ -51,12 +57,15 @@ commit gate refuse instead of advise. The slash commands below are optional.
 
 ## The graph backend
 
-The blast-radius probe defaults to an **in-house pure-Node dependency graph**
+The blast-radius probe is built on an **in-house pure-Node dependency graph**
 (`lib/graph.mjs`) — JS/TS (with tsconfig path aliases) and shell resolve precisely;
-other languages fail safe by surveying more. If graphify has produced a graph and it
-is **current** (built at `HEAD`), `dar` uses that richer graph instead; a stale
-graphify graph falls back to the fresh native one. The same fail-secure contract
-holds either way.
+other languages fail safe by surveying more. The native graph is **always** the
+authority for whether a changed file is resolved. If graphify has produced a graph and
+it is **current** (built at `HEAD`), `dar` uses it **additively** — it may only *add*
+dependency edges (between files the native graph already tracks), never remove fan-out
+or mark a file resolved. So graphify can make the gate more conservative, never less; a
+stale graph is simply ignored. That keeps the same fail-secure contract with or without
+graphify.
 
 ## Optional manual commands
 
@@ -69,20 +78,35 @@ dar probe        --repo P --diff-base main          # survey vs skip? (fast, no 
 dar scope        --repo P --task "..." --diff-base main   # map the blast radius first
 dar plan-redteam --repo P --plan plan.md            # Codex attacks the plan, pre-code
 dar ripple       --repo P --diff-base main          # post-diff independent review
+dar verify       --repo P                           # run the repo's tests/typecheck/lint gates
 dar canary                                          # is the reviewer still sharp?
 ```
 
-`/dar-scope`, `/dar-plan-redteam`, `/dar-ripple`, `/dar-review` are the same gates as
-slash commands.
+The same gates are available as slash commands. Installed as a plugin, they are
+namespaced by the plugin name:
+
+```
+/dual-agent-review:dar-scope
+/dual-agent-review:dar-plan-redteam
+/dual-agent-review:dar-ripple
+/dual-agent-review:dar-verify
+/dual-agent-review:dar-review
+```
+
+(The bare `/dar-scope` … forms apply only to the CLI-only install below, which symlinks
+the commands into `~/.claude/commands` without a plugin namespace.)
 
 ## How the gate decides
 
 The probe computes each changed file's **consumer set** (reverse-dependency
 traversal) and surveys if any of: fan-out over threshold, subsystem spread over
-threshold, a **hot-path** file (auth, migrations, shared plumbing…), an **unresolved**
-or **unsupported-language** file, **low graph confidence**, or **any probe/config/graph
-failure** (unreadable graph, bad hot-path regex, an undiffable state). It skips
-**only** on positive proof of containment — a false skip is an unbounded bug; a false
+threshold, a **hot-path** file (auth, migrations, shared plumbing…), an **unresolved**,
+**unsupported-language**, or **opaque control-plane** file (a plugin manifest, schema,
+CI config, lockfile — anything non-code we can't prove has zero blast radius; only
+genuinely inert docs/assets are treated as contained), **low graph confidence** near the
+change, or **any probe/config/graph failure** (unreadable graph, bad hot-path regex, an
+undiffable state). It skips **only** on positive proof of containment — file presence in
+the repo is never treated as that proof. A false skip is an unbounded bug; a false
 survey is a few bounded minutes, so the gate is deliberately biased toward reviewing.
 
 ## Security & trust boundary

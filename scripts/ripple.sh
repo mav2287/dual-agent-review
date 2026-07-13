@@ -27,10 +27,23 @@ RUN="$(dar_new_run ripple)"
 # Re-measure impact on the ACTUAL diff (not the intended change).
 dar_probe "$REPO" --diff-base "$DIFF_BASE" --pretty > "${RUN}/actual-impact.json"
 
+# Capture the diff to a FILE first, then slice it. Piping `git diff | head -c` sends
+# SIGPIPE to git when head stops early; under the inherited `pipefail` that returned
+# 141 and aborted the whole context build before Codex ran (finding #5). Reading from
+# a file has no pipe, so no SIGPIPE. A git FAILURE (e.g. an invalid --diff-base) must
+# NOT be swallowed — reviewing an empty diff as if the tree were clean is fail-open.
+FULL_DIFF="${RUN}/full.diff"
+if ! git -C "$REPO" diff "$DIFF_BASE" > "$FULL_DIFF" 2>"${RUN}/diff.err"; then
+  echo "dar ripple: could not compute diff against '${DIFF_BASE}' (see ${RUN}/diff.err) — failing secure, no review run." >&2
+  exit 2
+fi
+DIFF_BYTES=$(wc -c < "$FULL_DIFF" | tr -d ' ')
+
 CTX="${RUN}/context.md"
 {
   echo "## The diff under review"
-  git -C "$REPO" diff "$DIFF_BASE" | head -c 200000
+  head -c 200000 "$FULL_DIFF"
+  [ "$DIFF_BYTES" -gt 200000 ] && printf '\n\n[diff truncated to 200000 of %s bytes for the review context]\n' "$DIFF_BYTES"
   echo
   echo "## Actual measured impact of this diff"
   cat "${RUN}/actual-impact.json"
@@ -52,10 +65,10 @@ if dar_codex_run "${DAR_HOME}/prompts/ripple.md" "$CTX" "${DAR_HOME}/schemas/rev
   CONFORM="$(dar_json scope_conformance.respected_scope_map "$OUT")"
   echo "→ verdict: ${VERDICT}   scope-respected: ${CONFORM}   (findings: $OUT)"
   dar_json findings "$OUT" | node -e 'JSON.parse(require("fs").readFileSync(0)).forEach(f=>console.log(`  [${f.severity}/${f.category}] ${f.claim}`))' 2>/dev/null || true
-  # A real review completed for this working state → record the receipt so the Stop
-  # gate can verify it actually ran. Written regardless of verdict: fixing findings
-  # changes the diff, which changes the fingerprint and forces a fresh review.
-  dar_write_receipt "$REPO"
+  # Record the receipt WITH the verdict. The Stop gate releases only on `ship`; a
+  # block/revise receipt matches the diff but does NOT clear the gate (#7). Fixing
+  # findings changes the diff → new fingerprint → the next review starts fresh.
+  dar_write_receipt "$REPO" "$VERDICT"
   [[ "$VERDICT" == "ship" ]] || exit 3
 else
   rc=$?; echo "dar ripple: codex failed (rc=$rc); see $ERR" >&2; exit "$rc"

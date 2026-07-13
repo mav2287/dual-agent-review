@@ -6,6 +6,14 @@ set -euo pipefail
 DAR_HOME="${DAR_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 export DAR_HOME
 
+# Freeze the CANONICAL plugin root — derived directly from THIS file's location, not
+# from the (env-overridable) DAR_HOME — and make it readonly BEFORE any target repo's
+# .dar.config.sh can run. The wrapper reload in dar_load_repo_config sources from this
+# immutable path, so a hostile config that reassigns DAR_HOME cannot redirect the
+# reload at an attacker-controlled lib/codex.sh. Do NOT trust a pre-set value.
+DAR_CANONICAL_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly DAR_CANONICAL_HOME
+
 # Base config, then per-target-repo override (.dar.config.sh) if present.
 # shellcheck source=/dev/null
 source "${DAR_HOME}/config/defaults.sh"
@@ -43,9 +51,10 @@ dar_load_repo_config() {
     source "${repo}/.dar.config.sh"
     # Re-assert the canonical Codex wrapper AFTER repo config: a repo's config
     # runs arbitrary shell and could otherwise redefine dar_codex_run to escape
-    # the read-only sandbox. Reloading it makes our definition authoritative.
+    # the read-only sandbox. Reload from the FROZEN canonical root (not DAR_HOME,
+    # which the config could have mutated) so our definition is authoritative.
     # shellcheck source=/dev/null
-    source "${DAR_HOME}/lib/codex.sh"
+    source "${DAR_CANONICAL_HOME}/lib/codex.sh"
   fi
 }
 

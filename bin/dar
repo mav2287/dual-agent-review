@@ -13,6 +13,7 @@
 #   dar scope    --repo P --task "…"        Gate 1: survey the blast radius
 #   dar plan-redteam --repo P --plan F …    Gate 2: red-team the written plan
 #   dar ripple   --repo P --scope-map F …   Gate 4: post-diff ripple check
+#   dar verify   --repo P      run the repo's configured deterministic gates
 #   dar canary                 check the reviewer still catches a planted fault
 #
 # Subcommands print a usage/arg error on bad input; there is no per-command --help.
@@ -40,19 +41,21 @@ case "$cmd" in
     done
     [[ -n "$repo" ]] || { echo "dar probe: --repo required" >&2; exit 2; }
     repo="$(cd "$repo" && pwd)"; dar_load_repo_config "$repo"
-    dar_probe "$repo" "${args[@]}" --pretty
+    # Empty-array expansion is unbound-variable-safe on Bash 3.2 via the ${a[@]+…} guard.
+    dar_probe "$repo" "${args[@]+"${args[@]}"}" --pretty
     ;;
   scope)         exec bash "${DAR_HOME}/scripts/scope.sh" "$@";;
   plan-redteam)  exec bash "${DAR_HOME}/scripts/plan-redteam.sh" "$@";;
   ripple)        exec bash "${DAR_HOME}/scripts/ripple.sh" "$@";;
+  verify)        exec bash "${DAR_HOME}/scripts/verify.sh" "$@";;
   canary)        exec bash "${DAR_HOME}/scripts/canary.sh" "$@";;
   setup)         exec bash "${DAR_HOME}/scripts/setup.sh" "$@";;
   doctor)        exec bash "${DAR_HOME}/scripts/doctor.sh" "$@";;
   ""|-h|--help)
-    sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     ;;
   *)
-    echo "dar: unknown command '$cmd' (try: doctor, probe, scope, plan-redteam, ripple, canary, setup)" >&2
+    echo "dar: unknown command '$cmd' (try: doctor, probe, scope, plan-redteam, ripple, verify, canary, setup)" >&2
     exit 2
     ;;
 esac

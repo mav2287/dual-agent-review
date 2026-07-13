@@ -19,17 +19,20 @@ in) **and** downstream (independent check that the change stayed in bounds).
 3. **Implement** (Claude) — within the red-teamed plan; tests for behavior + fail paths.
 4. **Ripple check** (Codex, after the diff) — independent: did it stay inside the
    surveyed frame? Re-measures the actual diff's graph impact.
-5. **Verify + merge** (manual workflow policy — there's no `dar verify` gate) — run
-   the repo's deterministic gates + a **fresh** Claude self-audit; treat a Codex
-   `ship` as necessary but not sufficient. Deterministic gates are the merge
-   authority; no model's "looks good" is.
+5. **Verify + merge** (manual workflow policy — the Stop hook does not run it) — run
+   the repo's deterministic gates (`dar verify` runs the ones configured in
+   `.dar.config.sh`) + a **fresh** Claude self-audit; treat a Codex `ship` as necessary
+   but not sufficient. Deterministic gates are the merge authority; no model's "looks
+   good" is.
 
 ## The blast-radius gate (survey vs skip)
 Diff size is a *proxy* for impact that is uncorrelated — sometimes anti-correlated —
 with real blast radius. `dar probe` measures the real thing: it builds a dependency
-graph (in-house pure Node by default, or graphify's graph when that is present and
-current) and computes each changed file's reverse-dependency fan-out + subsystem
-spread, plus a hot-path tripwire.
+graph (in-house pure Node — always the authority; a current graphify graph is merged
+in **additively**, edges only, never replacing native resolution) and computes each
+changed file's reverse-dependency fan-out + subsystem spread, plus a hot-path tripwire
+(which also covers agent control planes: `prompts/`, `skills/`, `commands/`, hooks and
+their entrypoint scripts).
 
 **Skip requires positive proof of containment.** Survey fires on *any* of:
 fan-out > threshold, spread > threshold, a hot-path file, an unresolved symbol, a
@@ -38,8 +41,8 @@ confidence, or any probe/config/graph failure (unreadable graph, bad hot-path re
 an undiffable state). The asymmetry is deliberate: a false skip is an unbounded bug; a false
 survey is a few bounded minutes. Static graphs miss dynamic dispatch / DI /
 cross-language edges — which is exactly why *unresolved → survey* is load-bearing. (A
-*stale* graphify graph doesn't survey-everything; it falls back to the fresh native
-graph.)
+*stale* graphify graph doesn't survey-everything; it is ignored and the fresh native
+graph is used.)
 
 ## Reconciliation & anti-thrash
 - Disagreement → gather deterministic evidence (run the test, open the anchor), then
@@ -78,16 +81,19 @@ history:
 4. Record calibration decisions here.
 
 ## How it's enforced
-The plugin ships three hooks (`hooks/hooks.json`), so the gate is automatic by
+The plugin ships four hooks (`hooks/hooks.json`), so the gate is automatic by
 default (`DAR_ENFORCE=off` disables it):
 - **`Stop` hook** — the automatic engine, and it **hard-verifies**. After Claude
   responds, it runs the fast probe; a high-blast change blocks completion **until a
-  review receipt written by an actual `dar ripple` matches the current diff** (the
-  receipt is keyed to the tracked diff + untracked file *contents*). It does not
-  self-satisfy — ignoring the block does not clear it — and changing the diff (e.g.
-  fixing findings) invalidates the receipt and forces a fresh review. An *unmeasurable*
+  `dar ripple` review returns a `ship` verdict for the current diff** — the receipt
+  records the verdict and is keyed to the tracked diff + untracked file *contents*, so
+  a `block`/`revise` review does not clear the gate. It does not self-satisfy, and
+  changing the diff (e.g. fixing findings) forces a fresh review. If the same unshipped
+  diff is blocked past a bounded cap, it stops looping (honoring `stop_hook_active`,
+  staying under Claude Code's consecutive-block override), records a `blocked-unresolved`
+  marker, and escalates to the human rather than silently passing. An *unmeasurable*
   state (node/probe down) can't be cleared by a receipt, so there it fails secure by
-  blocking once (advisory), honoring `stop_hook_active`.
+  blocking once (advisory).
 - **`UserPromptSubmit` hook** — a light, once-per-session reminder to run the upstream
   gates (`dar scope`, `dar plan-redteam`) on high-blast work. Advisory only; those
   gates can't be hook-enforced (no "a plan was produced" event, especially for informal

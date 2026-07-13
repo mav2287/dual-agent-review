@@ -7,8 +7,14 @@
 set -uo pipefail
 DAR_HOME="${DAR_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-REPO=""
-[[ "${1:-}" == "--repo" ]] && REPO="${2:-}"
+REPO=""; LIVE=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo) REPO="${2:-}"; shift 2;;
+    --live) LIVE=1; shift;;
+    *) shift;;
+  esac
+done
 
 ok=0; bad=0
 check() { # LABEL COMMAND...
@@ -22,6 +28,25 @@ echo "required:"
 check "codex on PATH (reviewer/surveyor)" command -v codex
 check "node on PATH (ships with Claude Code)" command -v node
 check "git on PATH" command -v git
+
+# Wrapper-construction smoke test (finding #9): PATH presence is NOT enough — the
+# Codex argv must actually build under `set -u` with model/effort unset (the default
+# macOS Bash 3.2 crash path from finding #2). Never invokes codex.
+# shellcheck source=/dev/null
+source "${DAR_HOME}/config/defaults.sh" 2>/dev/null || true
+# shellcheck source=/dev/null
+source "${DAR_HOME}/lib/codex.sh" 2>/dev/null || true
+if declare -F dar_codex_selftest >/dev/null 2>&1; then
+  check "codex wrapper builds argv (Bash empty-array safe)" dar_codex_selftest
+else
+  printf "  ✗ codex wrapper self-test unavailable (lib/codex.sh not loaded)\n"; bad=$((bad+1))
+fi
+
+# When run inside the plugin repo, validate the plugin + marketplace + hook config so
+# a shipped regression (invalid manifest / hook schema) is caught here too.
+if [[ -f "${DAR_HOME}/.claude-plugin/marketplace.json" ]] && command -v claude >/dev/null 2>&1; then
+  check "plugin + marketplace validate (--strict)" claude plugin validate "${DAR_HOME}" --strict
+fi
 
 echo "optional (accelerator):"
 if command -v graphify >/dev/null 2>&1; then
@@ -59,6 +84,30 @@ if(!fM){ try{
     console.log(`  ⚠ newer codex model available: ${latest.slug} (${latest.display_name}); you are on ${cfgModel} — update ~/.codex/config.toml to review with it`);
 }catch{} }
 ' 2>/dev/null || printf "  (could not read codex config)\n"
+
+# Opt-in LIVE check: actually invoke codex read-only over a trivial fixture and confirm
+# it returns schema-valid JSON. Costs tokens, so it is off by default.
+if [[ "$LIVE" == "1" ]]; then
+  echo "live reviewer check (--live; invokes codex, read-only):"
+  ( set -uo pipefail
+    # shellcheck source=/dev/null
+    source "${DAR_HOME}/lib/common.sh" >/dev/null 2>&1
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+    git -C "$tmp" init -q
+    printf '## The diff under review\n```\n+export const x = 1;\n```\n' > "$tmp/ctx.md"
+    if dar_codex_run "${DAR_HOME}/prompts/ripple.md" "$tmp/ctx.md" "${DAR_HOME}/schemas/review.schema.json" "$tmp/out.json" "$tmp/err.txt" "$tmp" \
+       && node -e 'JSON.parse(require("fs").readFileSync(process.argv[1]))' "$tmp/out.json" >/dev/null 2>&1; then
+      printf "  ✓ codex returned schema-valid JSON\n"
+    else
+      # Surface the actual codex stderr/output INLINE before the temp dir is cleaned up,
+      # so an auth/model failure is diagnosable (don't just say "see errors" then delete them).
+      printf "  ✗ live codex review failed. codex stderr:\n"
+      sed 's/^/      /' "$tmp/err.txt" 2>/dev/null | head -40
+      [ -s "$tmp/out.json" ] && { printf "    (raw output:)\n"; sed 's/^/      /' "$tmp/out.json" 2>/dev/null | head -20; }
+      exit 1
+    fi
+  ) || bad=$((bad+1))
+fi
 
 if [[ -n "$REPO" ]]; then
   REPO="$(cd "$REPO" && pwd)"
