@@ -51,6 +51,7 @@ dar_default DAR_MIN_CONFIDENCE 0.4     # native-graph trust floor
 # SessionStart. A delta larger than DAR_MAX_DELTA_FILES is treated as unmeasurable
 # (block-once, with a re-baseline hint) rather than silently skipped.
 dar_default DAR_MAX_STOP_BLOCKS 4
+dar_default DAR_MAX_STOP_BLOCKS_NONSHIP 6   # explicit reviewer refusal holds longer
 dar_default DAR_MAX_DELTA_FILES 500
 # DAR_EXCLUDE / DAR_INERT_EXTRA / DAR_OPAQUE_EXTRA: newline-separated regex lists,
 # empty by default; per-repo values come from a TRUSTED repo's .dar.thresholds.

@@ -16,7 +16,7 @@ echo '{"v":2}' > "$R/config.json"   # working change to an opaque control file â
 OUT_F="$(mktemp)"; ERR_F="$(mktemp)"
 run_stop() {
   printf '{"stop_hook_active":%s}' "$1" \
-    | CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_MAX_STOP_BLOCKS="${2:-4}" \
+    | CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_MAX_STOP_BLOCKS="${2:-4}" DAR_MAX_STOP_BLOCKS_NONSHIP="${2:-4}" \
       bash "$DAR_ROOT/scripts/stop-gate.sh" >"$OUT_F" 2>"$ERR_F"
 }
 OUT() { cat "$OUT_F"; }

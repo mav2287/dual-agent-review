@@ -61,11 +61,14 @@ dar_load_thresholds() {
     case "$line" in *=*) ;; *) continue;; esac
     key="${line%%=*}"; val="${line#*=}"
     case "$key" in
-      DAR_FANOUT_THRESHOLD|DAR_SPREAD_THRESHOLD|DAR_BFS_DEPTH|DAR_MAX_STOP_BLOCKS|DAR_MAX_DELTA_FILES)
+      DAR_FANOUT_THRESHOLD|DAR_SPREAD_THRESHOLD|DAR_BFS_DEPTH|DAR_MAX_STOP_BLOCKS|DAR_MAX_STOP_BLOCKS_NONSHIP|DAR_MAX_DELTA_FILES)
         case "$val" in ''|*[!0-9]*) continue;; esac
         dar_thr_set "$key" "$val";;
       DAR_MIN_CONFIDENCE)
+        # Must contain a digit ("." alone becomes NaN downstream, and NaN comparisons
+        # would silently disable the confidence tripwire — fail-open).
         case "$val" in ''|*[!0-9.]*|*.*.*) continue;; esac
+        case "$val" in *[0-9]*) ;; *) continue;; esac
         dar_thr_set "$key" "$val";;
       DAR_HOTPATHS_EXTRA)
         # Strengthening — always honored; folds into the pattern list the probe reads.

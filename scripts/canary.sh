@@ -67,9 +67,16 @@ dar_codex_run "${DAR_HOME}/prompts/ripple.md" "$CTX" "${DAR_HOME}/schemas/review
 read -r caught refused <<<"$(node -e '
 try {
   const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  const identified = (d.findings || []).some(f =>
-    f.category === "fail-secure-hole" || f.category === "security" ||
-    /fail[- ]?open|allows? (access )?on error|returns? true (on|in) (the )?catch/i.test((f.claim || "") + " " + (f.evidence || "")));
+  // A specific catch must reference the PLANTED SITE (the fixture file/function),
+  // not merely be any security-category finding — an unrelated security nit must
+  // not score as detection of the planted hole.
+  const identified = (d.findings || []).some(f => {
+    const txt = [f.claim, f.evidence, f.anchor].filter(Boolean).join(" ");
+    const atSite = /access\.js|canAccess/i.test(txt);
+    const failOpenShaped = f.category === "fail-secure-hole" || f.category === "security" ||
+      /fail[- ]?open|allows? (access )?on error|returns? true (on|in) (the )?catch/i.test(txt);
+    return atSite && failOpenShaped;
+  });
   const refused = d.verdict !== "ship";
   process.stdout.write(`${identified} ${refused}`);
 } catch { process.stdout.write("false false"); }' "$OUT" 2>/dev/null || echo "false false")"

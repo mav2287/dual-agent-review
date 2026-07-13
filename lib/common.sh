@@ -69,12 +69,15 @@ dar_load_repo_config() {
   fi
 }
 
-# dar_new_run GATE — create and echo a fresh run directory.
+# dar_new_run GATE — create and echo a fresh run directory. Run artifacts contain
+# COMPLETE target-repo diffs, so they are user-private: created 0700 (umask 077),
+# and the state root is tightened too (it may predate this policy).
 dar_new_run() {
   local gate="$1"
   local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
   local dir="${DAR_RUNS_DIR}/${stamp}-${gate}-$$"
-  mkdir -p "$dir"
+  (umask 077; mkdir -p "$dir")
+  chmod 700 "$dir" "$DAR_RUNS_DIR" "$(dirname "$DAR_RUNS_DIR")" 2>/dev/null || true
   echo "$dir"
 }
 

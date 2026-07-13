@@ -35,6 +35,8 @@ RUN="$(dar_new_run ripple)"
 
 # ── frame the change: session baseline, or an explicit/default diff base ─────
 FILES_CSV=""
+DELTA_PATHS=""       # NUL-separated tracked+untracked delta pathspec file (session mode)
+UNTRACKED_LIST=""    # NUL-separated untracked files whose CONTENT the receipt covers
 if [[ -n "$BASELINE" ]]; then
   [[ -f "$BASELINE" ]] || { echo "dar ripple: baseline not found: $BASELINE" >&2; exit 2; }
   deltaj="$(node "${DAR_HOME}/lib/baseline.mjs" delta --repo "$REPO" --baseline "$BASELINE")" \
@@ -48,7 +50,14 @@ if [[ -n "$BASELINE" ]]; then
   else
     DIFF_BASE="$d_head"
   fi
-  [[ "$d_unsafe" != "true" ]] && FILES_CSV="$(printf '%s' "$deltaj" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0)).delta.join(","))}catch{}')"
+  if [[ "$d_unsafe" != "true" ]]; then
+    FILES_CSV="$(printf '%s' "$deltaj" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0)).delta.join(","))}catch{}')"
+  fi
+  # Path lists for context building — NUL-separated so odd filenames survive.
+  RUN_PRE="$(mktemp -d)"
+  DELTA_PATHS="${RUN_PRE}/delta-paths"; UNTRACKED_LIST="${RUN_PRE}/untracked-list"
+  printf '%s' "$deltaj" | node -e 'const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(d.delta.join("\0"))' > "$DELTA_PATHS" || DELTA_PATHS=""
+  printf '%s' "$deltaj" | node -e 'const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(d.untrackedDelta.join("\0"))' > "$UNTRACKED_LIST" || UNTRACKED_LIST=""
 else
   DIFF_BASE="${DIFF_BASE:-HEAD}"
 fi
@@ -67,17 +76,56 @@ fi
 # a file has no pipe, so no SIGPIPE. A git FAILURE (e.g. an invalid --diff-base) must
 # NOT be swallowed — reviewing an empty diff as if the tree were clean is fail-open.
 FULL_DIFF="${RUN}/full.diff"
-if ! git -C "$REPO" diff "$DIFF_BASE" > "$FULL_DIFF" 2>"${RUN}/diff.err"; then
+# In session mode, scope the tracked diff to the DELTA paths: pre-session dirty files
+# are not under review (they'd dilute the reviewer and skew scope-conformance). If
+# pathspec scoping fails for any reason, fall back to the FULL diff — reviewing more
+# than needed is safe; reviewing less is not.
+if [[ -s "${DELTA_PATHS:-}" ]] && git -C "$REPO" diff "$DIFF_BASE" --pathspec-from-file="$DELTA_PATHS" --pathspec-file-nul > "$FULL_DIFF" 2>"${RUN}/diff.err"; then
+  :
+elif ! git -C "$REPO" diff "$DIFF_BASE" > "$FULL_DIFF" 2>"${RUN}/diff.err"; then
   echo "dar ripple: could not compute diff against '${DIFF_BASE}' (see ${RUN}/diff.err) — failing secure, no review run." >&2
   exit 2
 fi
 DIFF_BYTES=$(wc -c < "$FULL_DIFF" | tr -d ' ')
+
+# The receipt's fingerprint covers untracked-file CONTENTS — so the reviewer must
+# actually SEE them ('git diff' never shows untracked files; without this, a brand-new
+# implementation file could earn a ship receipt sight-unseen). Session mode reviews
+# the session's new untracked files; legacy mode reviews all untracked files (matching
+# what each mode's fingerprint covers). Bounded: 40 KB/file, 150 KB total; binary
+# files are named with a size placeholder.
+emit_untracked_section() { # NUL-separated list on stdin
+  local budget=150000 per=40000 f sz
+  echo "## New files in this change (untracked — not visible in the diff above)"
+  while IFS= read -r -d '' f; do
+    [ -f "${REPO}/${f}" ] || continue
+    sz=$(wc -c < "${REPO}/${f}" 2>/dev/null | tr -d ' '); [ -n "$sz" ] || sz=0
+    printf '\n### %s (%s bytes)\n' "$f" "$sz"
+    if LC_ALL=C grep -q "$(printf '\0')" "${REPO}/${f}" 2>/dev/null; then
+      echo '[binary content omitted]'
+      continue
+    fi
+    if [ "$budget" -le 0 ]; then echo '[content omitted: context budget exhausted]'; continue; fi
+    local take=$per; [ "$take" -gt "$budget" ] && take=$budget
+    echo '```'
+    head -c "$take" "${REPO}/${f}" 2>/dev/null
+    echo; echo '```'
+    [ "$sz" -gt "$take" ] && printf '[truncated to %s of %s bytes]\n' "$take" "$sz"
+    budget=$(( budget - (sz < take ? sz : take) ))
+  done
+}
 
 CTX="${RUN}/context.md"
 {
   echo "## The diff under review"
   head -c 200000 "$FULL_DIFF"
   [ "$DIFF_BYTES" -gt 200000 ] && printf '\n\n[diff truncated to 200000 of %s bytes for the review context]\n' "$DIFF_BYTES"
+  echo
+  if [[ -n "$BASELINE" ]]; then
+    [[ -s "${UNTRACKED_LIST:-}" ]] && emit_untracked_section < "$UNTRACKED_LIST"
+  else
+    git -C "$REPO" ls-files -z --others --exclude-standard 2>/dev/null | emit_untracked_section
+  fi
   echo
   echo "## Actual measured impact of this diff"
   cat "${RUN}/actual-impact.json"

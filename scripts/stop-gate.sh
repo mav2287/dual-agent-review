@@ -33,12 +33,24 @@ input="$(cat 2>/dev/null || true)"
 active="$(printf '%s' "$input" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0)).stop_hook_active||false))}catch{process.stdout.write("false")}' 2>/dev/null || echo false)"
 sid="$(printf '%s' "$input" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0)).session_id||""))}catch{process.stdout.write("")}' 2>/dev/null || echo "")"
 
+json_str() { printf '%s' "$1" | node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync(0,"utf8")))' 2>/dev/null || printf '"%s"' "$1"; }
 emit_block() {
-  printf '{"decision":"block","reason":%s}\n' "$(printf '%s' "$1" | node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync(0,"utf8")))' 2>/dev/null || printf '"%s"' "$1")"
+  printf '{"decision":"block","reason":%s}\n' "$(json_str "$1")"
   exit 0
 }
-# Unmeasurable state can't be cleared by a receipt → block once (advisory), not forever.
-emit_block_once() { [[ "$active" == "true" ]] && exit 0; emit_block "$1"; }
+# Unmeasurable state can't be cleared by a receipt → block once per turn (a hard
+# block would deadlock: nothing the model does can produce a receipt for a state we
+# can't fingerprint). But the pass-through is NEVER silent: it records an auditable
+# blocked-unresolved marker and surfaces a user-visible warning.
+emit_block_once() {
+  if [[ "$active" == "true" ]]; then
+    declare -F dar_mark_blocked_unresolved_fp >/dev/null 2>&1 && dar_mark_blocked_unresolved_fp "$PROJ" "unmeasurable"
+    echo "dual-agent-review ⚠ FINISHING WITH AN UNMEASURABLE CHANGE STATE (no review ran): $1" >&2
+    printf '{"systemMessage":%s}\n' "$(json_str "⚠ dual-agent-review: this turn finished with an UNMEASURABLE change state — no review ran. Recorded as blocked-unresolved. $1")"
+    exit 0
+  fi
+  emit_block "$1"
+}
 
 # Thresholds + hot-paths for the probe; then a trusted repo's .dar.thresholds.
 # shellcheck source=/dev/null
@@ -106,6 +118,10 @@ read -r survey fanout spread < <(
 # ESCALATE loudly to the human and record an auditable blocked-unresolved marker.
 MAX_BLOCKS="${DAR_MAX_STOP_BLOCKS:-4}"
 verdict="$(dar_receipt_verdict_fp "$PROJ" "$FP" 2>/dev/null || true)"
+# An EXPLICIT non-ship verdict (the reviewer looked and said no) holds the line
+# longer than "no review yet" — still bounded below Claude Code's ~8-consecutive
+# force-override so the escalation stays ours, loud and recorded, not CC's silent one.
+[[ -n "$verdict" && "$verdict" != "ship" ]] && MAX_BLOCKS="${DAR_MAX_STOP_BLOCKS_NONSHIP:-6}"
 
 # A review ran for this exact state but did NOT ship (block/revise). Distinguish that
 # from "no review yet" so the message is honest about what happened.
@@ -124,6 +140,7 @@ if [[ "$blocks" -ge "$MAX_BLOCKS" ]]; then
   dar_mark_blocked_unresolved_fp "$PROJ" "$FP"
   if [[ "$active" == "true" ]]; then
     echo "dual-agent-review ⚠ FINISHING WITHOUT A PASSING REVIEW: ${HEADER} Blocked ${blocks}× with no resolution; recorded as blocked-unresolved. Re-run the review after addressing the findings." >&2
+    printf '{"systemMessage":%s}\n' "$(json_str "⚠ dual-agent-review: FINISHED WITHOUT A PASSING REVIEW after ${blocks} blocks — recorded as blocked-unresolved. ${HEADER}")"
     exit 0
   fi
   emit_block "⚠ ${HEADER} This change has been blocked ${blocks} times without a shipping review. ${REVIEW}"

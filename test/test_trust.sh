@@ -56,7 +56,23 @@ bash -c 'source "$0/lib/trust.sh"; dar_trust_add "$1" >/dev/null' "$DAR_ROOT" "$
 got="$(DAR_NO_REPO_CONFIG=1 bash -c 'source "$0/lib/common.sh"; dar_load_repo_config "$1" 2>/dev/null; echo "${PWNED:-no}"' "$DAR_ROOT" "$R")"
 assert_eq "DAR_NO_REPO_CONFIG=1 hard override" "no" "$got"
 
-# 7) The CLI round-trip.
+# 7) NaN-shaped numerics are rejected everywhere: the thresholds parser refuses a
+#    digitless DAR_MIN_CONFIDENCE, and the probe treats a non-finite env value as a
+#    CONFIG ERROR (survey), never as a silently-disabled tripwire.
+printf 'DAR_MIN_CONFIDENCE=.\n' > "$R/.dar.thresholds"
+got="$(bash -c 'source "$0/lib/trust.sh"; source "$0/lib/thresholds.sh"; source "$0/config/defaults.sh"; dar_load_thresholds "$1" 2>/dev/null; echo "$DAR_MIN_CONFIDENCE"' "$DAR_ROOT" "$R")"
+assert_eq "digitless MIN_CONFIDENCE rejected by parser" "0.4" "$got"
+echo x > "$R/f.txt"; git -C "$R" add -A >/dev/null 2>&1; git -C "$R" -c commit.gpgsign=false commit -qm c --allow-empty
+reasons="$(DAR_MIN_CONFIDENCE=abc node "$DAR_ROOT/lib/blast-radius.mjs" --repo "$R" --files f.txt | node -e 'const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(`${d.survey} ${d.reasons.join(";")}`)')"
+assert_contains "probe surveys on non-finite threshold env" "$reasons" "true"
+assert_contains "probe names the bad config" "$reasons" "bad DAR_MIN_CONFIDENCE"
+
+# 8) Run artifacts are user-private (0700) — they hold complete target-repo diffs.
+rd="$(bash -c 'source "$0/lib/common.sh"; dar_new_run testperm' "$DAR_ROOT")"
+assert_eq "run dir is 0700" "drwx------" "$(ls -ld "$rd" | cut -c1-10)"
+rm -rf "$rd"
+
+# 9) The CLI round-trip.
 out="$(bash "$DAR_ROOT/bin/dar" untrust --repo "$R")"
 assert_contains "dar untrust" "$out" "untrusted:"
 out="$(bash "$DAR_ROOT/bin/dar" trust --repo "$R")"

@@ -75,10 +75,16 @@ echo new-work > "$R/after-rebase.json"
 run_stop
 assert_contains "work after re-baseline gates again" "$(OUT)" '"decision":"block"'
 
-# 8) A corrupt baseline is unmeasurable → block-once, never silent-clean.
+# 8) A corrupt baseline is unmeasurable → block-once; the same-turn pass-through is
+#    LOUD (systemMessage + blocked-unresolved marker), never silent-clean.
 echo garbage > "$BF"
 run_stop
 assert_contains "corrupt baseline fails secure" "$(OUT)" '"decision":"block"'
+rm -f "$(dar_blocked_marker_path "$R")"
+run_stop true
+assert_not_contains "unmeasurable + active does not deadlock" "$(OUT)" '"decision":"block"'
+assert_contains "unmeasurable pass-through is user-visible" "$(OUT)" 'systemMessage'
+assert_true "unmeasurable pass-through recorded as blocked-unresolved" test -f "$(dar_blocked_marker_path "$R")"
 
 # 9) delta subcommand: committed range + changed files enumerated, junk excluded.
 BF2="$(dar_baseline_path "$R" sessB)"
@@ -88,5 +94,29 @@ echo delta-work > "$R/dwork.txt"
 d="$(node "$DAR_ROOT/lib/baseline.mjs" delta --repo "$R" --baseline "$BF2")"
 assert_contains "delta lists session file" "$d" 'dwork.txt'
 assert_not_contains "delta excludes pre-existing junk" "$d" 'junk/a.txt'
+
+# 10) Content proof, not mtime: a same-size content swap with the mtime restored to
+#     the baseline's must STILL land in the delta (unchanged = size AND hash).
+printf 'AAAA' > "$R/junk/swap.txt"
+BF3="$(dar_baseline_path "$R" sessC)"
+node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R" --out "$BF3" >/dev/null
+cp -p "$R/junk/swap.txt" "$R/junk/swap.ref"     # keep a same-mtime reference
+printf 'BBBB' > "$R/junk/swap.txt"              # same size, new content
+touch -r "$R/junk/swap.ref" "$R/junk/swap.txt"  # restore the baseline mtime
+d="$(node "$DAR_ROOT/lib/baseline.mjs" delta --repo "$R" --baseline "$BF3")"
+assert_contains "same-size same-mtime content swap is detected" "$d" 'junk/swap.txt'
+
+# 11) A baseline captured BEFORE the first commit still fingerprints tracked content
+#     created by a mid-session initial commit (empty-tree diff base).
+R2="$(mktemp -d)"
+git -C "$R2" init -q; git -C "$R2" config user.email t@t; git -C "$R2" config user.name t; git -C "$R2" config commit.gpgsign false
+BFE="$(dar_baseline_path "$R2" sessE)"
+node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R2" --out "$BFE" >/dev/null
+echo v1 > "$R2/app.js"; git_commit "$R2" first
+fp1="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R2" --baseline "$BFE")"
+echo v2 > "$R2/app.js"; git_commit "$R2" second
+fp2="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R2" --baseline "$BFE")"
+assert_true "pre-first-commit baseline: tracked edits move the fingerprint" test "$fp1" != "$fp2"
+rm -rf "$R2"
 
 finish
