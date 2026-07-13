@@ -171,6 +171,17 @@ fpL2="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R6" --baseline "$
 assert_eq "target edits do not move the fingerprint (no read-through)" "$fpL1" "$fpL2"
 rm -rf "$R6" "$TGT"
 
+# 14b) State keys are alias-proof: the same repo reached via a symlinked path must
+#      key to the SAME state files (receipt written by ripple under one alias must
+#      be found by the Stop gate under another — /var vs /private/var on macOS).
+RA="$(new_repo)"
+LNKD="$(mktemp -d)"; ln -s "$RA" "$LNKD/alias"
+assert_eq "projkey identical across path aliases" "$(dar_projkey "$RA")" "$(dar_projkey "$LNKD/alias")"
+dar_write_receipt_fp "$LNKD/alias" "feedfacefeedfacefeedfacefeedfacefeedface" ship
+assert_true "receipt written via alias is found via real path" \
+  dar_receipt_matches_fp "$RA" "feedfacefeedfacefeedfacefeedfacefeedface"
+rm -rf "$RA" "$LNKD"
+
 # 15) A session whose only change is a NEW positively-inert file (a scratch note)
 #     passes silently — while a new CODE file still gates (no consumers visible ≠
 #     no consumers).

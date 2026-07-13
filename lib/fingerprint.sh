@@ -21,8 +21,18 @@
 # dar_state_dir — where receipts live (plugin data dir, or a stable fallback).
 dar_state_dir() { echo "${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/dual-agent-review}"; }
 
-# dar_projkey REPO — stable per-repo key.
-dar_projkey() { printf '%s' "$1" | shasum 2>/dev/null | cut -c1-12; }
+# dar_projkey REPO — stable per-repo key. Canonicalized to the PHYSICAL path at
+# this single choke point: every state file (receipt, baseline, block counter,
+# marker) derives its name here, and the same repo reaches different gates under
+# different aliases — CLAUDE_PROJECT_DIR may say /var/... while a `cd . && pwd`
+# says /private/var/... (macOS), which silently keyed ripple's receipt under a
+# different hash than the Stop gate looked up (observed live: three SHIP verdicts,
+# gate never released). An unresolvable path falls back to the raw string.
+dar_projkey() {
+  local p
+  p="$(cd "$1" 2>/dev/null && pwd -P)" || p="$1"
+  printf '%s' "$p" | shasum 2>/dev/null | cut -c1-12
+}
 
 # dar_receipt_path REPO — the receipt file for REPO.
 dar_receipt_path() { echo "$(dar_state_dir)/receipt-$(dar_projkey "$1")"; }
