@@ -67,13 +67,25 @@ if [[ -n "$sid" ]] && command -v node >/dev/null 2>&1; then
   [[ -f "$_bf" ]] && { BF="$_bf"; MODE="session"; }
 fi
 
-FILES_CSV=""   # session delta for the probe ("" → probe the full dirty state)
+FILES_CSV=""   # session delta for the probe ("" → probe by diff base)
+PROBE_BASE="HEAD"
 if [[ "$MODE" == "session" ]]; then
   deltaj="$(node "$ROOT/lib/baseline.mjs" delta --repo "$PROJ" --baseline "$BF" 2>/dev/null || true)"
-  read -r d_ok d_count d_unsafe < <(
-    printf '%s' "$deltaj" | node -e 'try{const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(`${d.ok} ${d.ok?d.delta.length:0} ${d.ok?(d.unsafe||false):false}`)}catch{process.stdout.write("false 0 false")}'
+  read -r d_ok d_count d_unsafe d_head < <(
+    printf '%s' "$deltaj" | node -e 'try{const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(`${d.ok} ${d.ok?d.delta.length:0} ${d.ok?(d.unsafe||false):false} ${d.baseHead||"?"}`)}catch{process.stdout.write("false 0 false ?")}'
   )
   [[ "$d_ok" != "true" ]] && emit_block_once "$MEASURE_FAIL"
+  # If we can't ride --files (comma/newline filenames), the fallback probe must diff
+  # against the BASELINE head — a HEAD-based probe sees a clean tree once the change
+  # is committed, which would let exactly those filenames bypass the review.
+  if [[ "$d_head" == "NONE" ]]; then
+    PROBE_BASE="$(git -C "$PROJ" hash-object -t tree /dev/null 2>/dev/null)" || PROBE_BASE=""
+    [[ -n "$PROBE_BASE" ]] || emit_block_once "$MEASURE_FAIL"
+  elif [[ "$d_head" != "?" ]]; then
+    PROBE_BASE="$d_head"
+  else
+    emit_block_once "$MEASURE_FAIL"
+  fi
   # Nothing changed this session (pre-existing worktree noise is inert) → finish.
   [[ "$d_count" -eq 0 ]] && exit 0
   if [[ "$d_count" -gt "${DAR_MAX_DELTA_FILES:-500}" ]]; then
@@ -101,7 +113,7 @@ dar_receipt_matches_fp "$PROJ" "$FP" && exit 0
 if [[ -n "$FILES_CSV" ]]; then
   res="$(node "$ROOT/lib/blast-radius.mjs" --repo "$PROJ" --files "$FILES_CSV" 2>/dev/null)" || emit_block_once "$MEASURE_FAIL"
 else
-  res="$(node "$ROOT/lib/blast-radius.mjs" --repo "$PROJ" --diff-base HEAD 2>/dev/null)" || emit_block_once "$MEASURE_FAIL"
+  res="$(node "$ROOT/lib/blast-radius.mjs" --repo "$PROJ" --diff-base "$PROBE_BASE" 2>/dev/null)" || emit_block_once "$MEASURE_FAIL"
 fi
 read -r survey fanout spread < <(
   printf '%s' "$res" | node -e 'try{const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(`${d.survey} ${d.signals.fanout??"?"} ${d.signals.spread??"?"}`)}catch{process.stdout.write("PARSEFAIL ? ?")}'

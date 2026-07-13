@@ -41,9 +41,13 @@ if [[ -n "$BASELINE" ]]; then
   [[ -f "$BASELINE" ]] || { echo "dar ripple: baseline not found: $BASELINE" >&2; exit 2; }
   deltaj="$(node "${DAR_HOME}/lib/baseline.mjs" delta --repo "$REPO" --baseline "$BASELINE")" \
     || { echo "dar ripple: cannot compute the session delta — failing secure, no review run." >&2; exit 2; }
+  # `|| true`: read returns 1 at EOF-without-newline even when it filled the vars,
+  # and common.sh's `set -e` would otherwise kill the script here. A genuinely
+  # empty read leaves d_ok != true → the fail-secure arm below.
   read -r d_ok d_head d_unsafe < <(
     printf '%s' "$deltaj" | node -e 'try{const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(`${d.ok} ${d.baseHead||"?"} ${d.unsafe||false}`)}catch{process.stdout.write("false ? false")}'
-  )
+  ) || true
+  d_ok="${d_ok:-false}"; d_head="${d_head:-?}"; d_unsafe="${d_unsafe:-false}"
   [[ "$d_ok" == "true" ]] || { echo "dar ripple: baseline unusable ($(printf '%s' "$deltaj" | head -c 120)) — failing secure, no review run." >&2; exit 2; }
   if [[ "$d_head" == "NONE" ]]; then
     DIFF_BASE="$(git -C "$REPO" hash-object -t tree /dev/null)"   # empty tree: review everything
@@ -53,11 +57,30 @@ if [[ -n "$BASELINE" ]]; then
   if [[ "$d_unsafe" != "true" ]]; then
     FILES_CSV="$(printf '%s' "$deltaj" | node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(0)).delta.join(","))}catch{}')"
   fi
-  # Path lists for context building — NUL-separated so odd filenames survive.
+  # Path lists for context building — NUL-separated so odd filenames survive. ONE
+  # node call writes both lists AND reports the expected count: if the reviewer
+  # cannot be shown the untracked contents the receipt would cover, there is NO
+  # review (a receipt for content the reviewer never saw is fail-open).
   RUN_PRE="$(mktemp -d)"
   DELTA_PATHS="${RUN_PRE}/delta-paths"; UNTRACKED_LIST="${RUN_PRE}/untracked-list"
-  printf '%s' "$deltaj" | node -e 'const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(d.delta.join("\0"))' > "$DELTA_PATHS" || DELTA_PATHS=""
-  printf '%s' "$deltaj" | node -e 'const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(d.untrackedDelta.join("\0"))' > "$UNTRACKED_LIST" || UNTRACKED_LIST=""
+  d_un="$(printf '%s' "$deltaj" | node -e '
+    try {
+      const fs = require("fs");
+      const d = JSON.parse(fs.readFileSync(0));
+      // NUL-TERMINATE every record (not join): `read -d ""` drops a final
+      // unterminated entry, which would silently omit the last file.
+      fs.writeFileSync(process.argv[1], d.delta.map(f => f + "\0").join(""));
+      fs.writeFileSync(process.argv[2], d.untrackedDelta.map(f => f + "\0").join(""));
+      process.stdout.write(String(d.untrackedDelta.length));
+    } catch { process.stdout.write("FAIL"); }' "$DELTA_PATHS" "$UNTRACKED_LIST" 2>/dev/null || echo FAIL)"
+  if [[ "$d_un" == "FAIL" ]]; then
+    echo "dar ripple: could not stage the session file lists for the review context — failing secure, no review run." >&2
+    exit 2
+  fi
+  if [[ "$d_un" -gt 0 && ! -s "$UNTRACKED_LIST" ]]; then
+    echo "dar ripple: ${d_un} untracked session file(s) exist but their list is empty — failing secure, no review run." >&2
+    exit 2
+  fi
 else
   DIFF_BASE="${DIFF_BASE:-HEAD}"
 fi
@@ -95,13 +118,18 @@ DIFF_BYTES=$(wc -c < "$FULL_DIFF" | tr -d ' ')
 # what each mode's fingerprint covers). Bounded: 40 KB/file, 150 KB total; binary
 # files are named with a size placeholder.
 emit_untracked_section() { # NUL-separated list on stdin
-  local budget=150000 per=40000 f sz
+  local budget=150000 per=40000 f sz raw8 txt8
   echo "## New files in this change (untracked — not visible in the diff above)"
   while IFS= read -r -d '' f; do
     [ -f "${REPO}/${f}" ] || continue
     sz=$(wc -c < "${REPO}/${f}" 2>/dev/null | tr -d ' '); [ -n "$sz" ] || sz=0
     printf '\n### %s (%s bytes)\n' "$f" "$sz"
-    if LC_ALL=C grep -q "$(printf '\0')" "${REPO}/${f}" 2>/dev/null; then
+    # Binary check: a NUL cannot ride through "$(printf '\0')" (command substitution
+    # strips NULs — see docs/build-postmortem.md), so compare byte counts with and
+    # without NULs over the head of the file instead.
+    raw8="$(head -c 8000 "${REPO}/${f}" 2>/dev/null | wc -c | tr -d ' ')"
+    txt8="$(head -c 8000 "${REPO}/${f}" 2>/dev/null | LC_ALL=C tr -d '\0' | wc -c | tr -d ' ')"
+    if [ "${raw8:-0}" != "${txt8:-0}" ]; then
       echo '[binary content omitted]'
       continue
     fi
@@ -122,9 +150,14 @@ CTX="${RUN}/context.md"
   [ "$DIFF_BYTES" -gt 200000 ] && printf '\n\n[diff truncated to 200000 of %s bytes for the review context]\n' "$DIFF_BYTES"
   echo
   if [[ -n "$BASELINE" ]]; then
-    [[ -s "${UNTRACKED_LIST:-}" ]] && emit_untracked_section < "$UNTRACKED_LIST"
+    [[ "${d_un:-0}" -gt 0 ]] && emit_untracked_section < "$UNTRACKED_LIST"
   else
-    git -C "$REPO" ls-files -z --others --exclude-standard 2>/dev/null | emit_untracked_section
+    UL="${RUN}/untracked-legacy"
+    if ! git -C "$REPO" ls-files -z --others --exclude-standard > "$UL" 2>>"${RUN}/diff.err"; then
+      echo "dar ripple: cannot enumerate untracked files — failing secure, no review run." >&2
+      exit 2
+    fi
+    [ -s "$UL" ] && emit_untracked_section < "$UL"
   fi
   echo
   echo "## Actual measured impact of this diff"

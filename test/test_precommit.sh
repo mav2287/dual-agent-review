@@ -59,6 +59,18 @@ assert_contains "cross-repo notice measured the target" "$(cat "$ERR_F")" "HIGH 
 rc=0; run_pre advise '{"tool_input":{"command":"cd /tmp && cd sub && git commit -m x"}}' || rc=$?
 assert_eq "chained cd → advisory, not silent" "1" "$rc"
 assert_contains "ambiguous notice says not-measured" "$(cat "$ERR_F")" "cannot determine"
+# Every other repo-redirection construct we can't attribute → same refusal.
+for cmd in \
+  'git --git-dir=/other/.git --work-tree=/other commit -m x' \
+  'GIT_DIR=/other/.git git commit -m x' \
+  'env -C /other git commit -m x' \
+  'bash -c "cd /other && git commit -m x"' \
+  'git -C /other status && git commit -m x'
+do
+  rc=0; run_pre advise "$(node -e 'process.stdout.write(JSON.stringify({tool_input:{command:process.argv[1]}}))' "$cmd")" || rc=$?
+  assert_eq "redirection refused: ${cmd%% *}…" "1" "$rc"
+  assert_contains "…and says not-measured" "$(cat "$ERR_F")" "cannot determine"
+done
 
 # Session fingerprints: with a baseline, the receipt must be keyed to the SESSION
 # fingerprint (a legacy receipt written for the same worktree does not match).

@@ -119,4 +119,19 @@ fp2="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R2" --baseline "$B
 assert_true "pre-first-commit baseline: tracked edits move the fingerprint" test "$fp1" != "$fp2"
 rm -rf "$R2"
 
+# 12) A COMMITTED session change whose filename contains a comma (can't ride
+#     --files) must still gate: the fallback probe diffs against the BASELINE head,
+#     not HEAD (which would see a clean tree after the commit).
+R4="$(new_repo)"
+echo base > "$R4/a.txt"; git_commit "$R4" init
+BF4="$(dar_baseline_path "$R4" sessU)"
+node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R4" --out "$BF4" >/dev/null
+echo '{"v":1}' > "$R4/we,ird.json"          # opaque control file, comma name
+git_commit "$R4" "commit the unsafe-named session change"
+out="$(printf '{"stop_hook_active":false,"session_id":"sessU"}' \
+  | CLAUDE_PROJECT_DIR="$R4" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+    bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
+assert_contains "committed comma-named change still blocks" "$out" '"decision":"block"'
+rm -rf "$R4"
+
 finish
