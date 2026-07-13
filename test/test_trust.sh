@@ -72,7 +72,20 @@ rd="$(bash -c 'source "$0/lib/common.sh"; dar_new_run testperm' "$DAR_ROOT")"
 assert_eq "run dir is 0700" "700" "$(node -e 'process.stdout.write((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$rd")"
 rm -rf "$rd"
 
-# 9) The CLI round-trip.
+# 9) dar's own per-repo config files are BUILT-IN hot paths: an edit to the gate's
+#    own calibration/merge-authority definition must always survey — otherwise a
+#    future change weakening the gates would slip through as a contained leaf.
+git -C "$R" add -A >/dev/null 2>&1; git -C "$R" -c commit.gpgsign=false commit -qm base --allow-empty
+hot_probe() { # FILE — probe with the BUILT-IN defaults loaded, as the real gates do
+  bash -c 'source "$0/lib/trust.sh"; source "$0/lib/thresholds.sh"; source "$0/config/defaults.sh"; node "$0/lib/blast-radius.mjs" --repo "$1" --files "$2"' "$DAR_ROOT" "$R" "$1" \
+    | node -e 'const d=JSON.parse(require("fs").readFileSync(0));process.stdout.write(`${d.survey} ${d.reasons.join(";")}`)'
+}
+reasons="$(hot_probe .dar.thresholds)"
+assert_contains ".dar.thresholds edit surveys as hot-path" "$reasons" "hot-path"
+reasons="$(hot_probe .dar.config.sh)"
+assert_contains ".dar.config.sh edit surveys as hot-path" "$reasons" "hot-path"
+
+# 10) The CLI round-trip.
 out="$(bash "$DAR_ROOT/bin/dar" untrust --repo "$R")"
 assert_contains "dar untrust" "$out" "untrusted:"
 out="$(bash "$DAR_ROOT/bin/dar" trust --repo "$R")"

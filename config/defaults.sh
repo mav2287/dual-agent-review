@@ -85,7 +85,8 @@ tsconfig.*\.json$
 (^|/)hooks?/
 (^|/)\.claude/
 (^|/)\.codex/
-(^|/)(CLAUDE|AGENTS|GEMINI)\.md$'
+(^|/)(CLAUDE|AGENTS|GEMINI)\.md$
+(^|/)\.dar\.(config\.sh|thresholds)$'
   DAR_DEFAULTED="${DAR_DEFAULTED} DAR_HOTPATHS"
 fi
 export DAR_HOTPATHS

@@ -1,7 +1,7 @@
 {
   "name": "dual-agent-review",
   "description": "Adds an automatic Codex check-and-balance to Claude Code: it pairs Claude's planning and focused coding with Codex's wider scope vision, and has Codex adversarially review changes that are big enough to matter \u2014 decided by a change's real blast radius, not diff size.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "author": {
     "name": "mav2287",
     "url": "https://github.com/mav2287"
