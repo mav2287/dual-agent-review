@@ -69,7 +69,7 @@ assert_contains "probe names the bad config" "$reasons" "bad DAR_MIN_CONFIDENCE"
 
 # 8) Run artifacts are user-private (0700) — they hold complete target-repo diffs.
 rd="$(bash -c 'source "$0/lib/common.sh"; dar_new_run testperm' "$DAR_ROOT")"
-assert_eq "run dir is 0700" "drwx------" "$(ls -ld "$rd" | cut -c1-10)"
+assert_eq "run dir is 0700" "700" "$(node -e 'process.stdout.write((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$rd")"
 rm -rf "$rd"
 
 # 9) The CLI round-trip.
