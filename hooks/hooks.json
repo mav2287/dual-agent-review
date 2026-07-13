@@ -52,6 +52,13 @@
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/precommit-gate.sh"],
             "timeout": 30,
             "statusMessage": "dual-agent-review: measuring blast radius…"
+          },
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/approve-dar.sh"],
+            "timeout": 10,
+            "statusMessage": "dual-agent-review: checking dar self-approval…"
           }
         ]
       }

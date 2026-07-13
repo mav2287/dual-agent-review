@@ -125,6 +125,19 @@ undiffable state). It skips **only** on positive proof of containment — file p
 the repo is never treated as that proof. A false skip is an unbounded bug; a false
 survey is a few bounded minutes, so the gate is deliberately biased toward reviewing.
 
+## Headless sessions
+
+The gate clears itself in non-interactive runs (`claude -p`, CI): a `PreToolUse`
+hook auto-approves **dar's own review commands** so `dar ripple` never dies waiting
+for a permission prompt nobody can answer. The approval is surgical and fail-closed:
+a single plain invocation only (no chaining/pipes/substitution/env prefixes), the
+binary must resolve to a real dual-agent-review `bin/dar`, and only the read-only
+review subcommands qualify (`ripple`, `probe`, `scope`, `plan-redteam`, `canary`,
+`verify`, `doctor`). The human escape hatches — `dar trust`, `dar untrust`,
+`dar baseline`, `dar setup` — are **never** self-approved; those still go through
+the normal permission flow, because an agent must not be able to trust a repo or
+re-frame its own session baseline without you.
+
 ## Security & trust boundary
 
 - **`dar`'s Codex review commands are hard read-only.** When `dar` invokes Codex
