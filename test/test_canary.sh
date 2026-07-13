@@ -25,6 +25,12 @@ s1b="$(make_stub '{"verdict":"block","summary":"x","findings":[{"severity":"high
 rc=0; run_canary "$s1b" || rc=$?
 assert_eq "unrelated security finding → missed (exit 3)" "3" "$rc"
 
+# 1c) Names the fault but SHIPS it anyway → MISSED: identification without refusal
+#     is not a healthy gate.
+s1c="$(make_stub '{"verdict":"ship","summary":"x","findings":[{"severity":"critical","category":"fail-secure-hole","claim":"canAccess catch returns true in src/access.js","evidence":"return true"}],"scope_conformance":{"respected_scope_map":true,"out_of_frame_touches":[]},"coverage":{"reviewed":"all","not_reviewed":"none"}}')"
+rc=0; run_canary "$s1c" || rc=$?
+assert_eq "identified but shipped → missed (exit 3)" "3" "$rc"
+
 # 2) Refuses to ship but names NO fault → MISSED (exit 3), not a catch.
 s2="$(make_stub '{"verdict":"revise","summary":"style only","findings":[{"severity":"low","category":"style","claim":"rename var","evidence":"nit"}],"scope_conformance":{"respected_scope_map":true,"out_of_frame_touches":[]},"coverage":{"reviewed":"all","not_reviewed":"none"}}')"
 rc=0; run_canary "$s2" || rc=$?

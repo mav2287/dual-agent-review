@@ -78,7 +78,9 @@ try {
     return atSite && failOpenShaped;
   });
   const refused = d.verdict !== "ship";
-  process.stdout.write(`${identified} ${refused}`);
+  // CAUGHT requires BOTH: naming the planted fault AND refusing to ship it. A
+  // reviewer that identifies the hole yet ships anyway is not a healthy gate.
+  process.stdout.write(`${identified && refused} ${refused}`);
 } catch { process.stdout.write("false false"); }' "$OUT" 2>/dev/null || echo "false false")"
 
 verdict="$(dar_json verdict "$OUT" 2>/dev/null || echo '?')"

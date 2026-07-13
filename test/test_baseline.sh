@@ -67,10 +67,13 @@ assert_contains "oversized delta names the escape hatch" "$(OUT)" 'baseline --re
 run_stop true DAR_MAX_DELTA_FILES=0
 assert_not_contains "oversized delta blocks only once per turn" "$(OUT)" '"decision":"block"'
 
-# 7) `dar baseline` re-frames: after re-capture the same worktree state is inert.
+# 7) `dar baseline` re-frames: after re-capture the same worktree state is inert —
+#    and the use is RECORDED (deliberate escape hatches must be auditable).
 bash "$DAR_ROOT/bin/dar" baseline --repo "$R" >/dev/null
 run_stop
 assert_not_contains "re-baseline makes current state inert" "$(OUT)" '"decision":"block"'
+assert_true "re-baseline recorded in the audit log" \
+  test -n "$(cat "$CLAUDE_PLUGIN_DATA"/rebaseline-log-* 2>/dev/null)"
 echo new-work > "$R/after-rebase.json"
 run_stop
 assert_contains "work after re-baseline gates again" "$(OUT)" '"decision":"block"'

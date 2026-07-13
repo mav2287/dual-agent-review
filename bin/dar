@@ -90,6 +90,11 @@ case "$cmd" in
         found=1
         if node "${DAR_HOME}/lib/baseline.mjs" capture --repo "$r" --out "$f" >/dev/null; then
           echo "re-baselined: $f"
+          # Auditable by design: re-baselining excludes the CURRENT worktree state
+          # from gating, so every use is recorded (like DAR_ENFORCE=off, this is a
+          # deliberate, visible escape hatch — not a silent one).
+          printf '%s rebaselined %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)" "$f" \
+            >> "$(dar_state_dir)/rebaseline-log-$(dar_projkey "$r")" 2>/dev/null || true
         else
           echo "dar baseline: FAILED to re-capture $f" >&2; exit 1
         fi

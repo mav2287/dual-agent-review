@@ -107,3 +107,28 @@ default (`DAR_ENFORCE=off` disables it):
 
 The slash commands and the skill remain available for running the full loop
 deliberately. Deterministic gates (tests/typecheck) stay the real merge authority.
+
+## Adjudicated residuals (reviewed, decided, not bugs)
+
+Live self-review rounds re-raise these; the decision and rationale live here so a
+future round (or reader) sees them as settled unless the trade-off itself changes:
+
+1. **Bounded escalation can end in completion without a passing review.** By design.
+   Claude Code force-overrides after ~8 consecutive Stop blocks — *silently*. dar caps
+   its own blocking BELOW that (4 default, 6 after an explicit non-ship verdict), and
+   the pass-through is never quiet: a user-visible `systemMessage`, a stderr warning,
+   and an auditable `blocked-unresolved` marker. The alternative — blocking forever —
+   is not available; the choice is whose override fires, and ours is loud and recorded.
+2. **Unreadable files count as unchanged while they STAY unreadable.** By design.
+   Treating perpetually-unreadable files (root-owned build artifacts) as
+   perpetually-changed would wedge every Stop in exactly the repos the session
+   baseline exists to fix. A file that becomes readable, or changes size, re-enters
+   the delta. The threat model is lazy shortcuts, not an adversary with chmod.
+3. **Tracked binary changes ship on a diff that shows only "Binary files differ".**
+   By design. The reviewer *sees that the binary changed* and can refuse; the bytes
+   themselves are not reviewable by an LLM, and burning context on them adds nothing.
+4. **The automatic ripple path has no scope map.** Definitional. A scope map is
+   produced by the deliberate pre-plan `dar scope`; the automatic post-diff path has
+   nothing to conform to. When a map exists, pass `--scope-map` and the conformance
+   check runs. `dar baseline` (the re-framing escape hatch) is likewise deliberate —
+   and now leaves an audit log entry per use.
