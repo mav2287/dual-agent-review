@@ -3,8 +3,9 @@
 ## Premise
 Two frontier coding agents with different strengths:
 - **Claude Code** — the *integrator*: plans and writes the change, eyes on the task.
-- **Codex (gpt-5.5)** — the *surveyor/adversary*: wide repo view, read-only, run
-  through `dar`.
+- **Codex** — the *surveyor/adversary*: wide repo view, read-only, run through
+  `dar`. The model and reasoning effort are inherited from your `~/.codex/config.toml`
+  (never pinned here — a hardcoded model goes stale; see `dar doctor`).
 
 The narrow view is what ships bugs (missed consumers, ripple, fail-secure holes).
 So Codex's breadth is inserted **upstream** (map the terrain before Claude tunnels

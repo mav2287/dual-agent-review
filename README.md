@@ -17,17 +17,23 @@ do; the second opinion shows up on its own when a change warrants it.
   change's real **blast radius** — how many files/subsystems depend on it — instead
   of using diff size. A one-line change to a hot symbol gets reviewed; a 300-line
   leaf change doesn't.
+- **Judges the session's own work.** At session start the plugin captures a
+  **baseline** of the worktree; the gates then measure only the **session delta** —
+  what this session actually changed, *including anything committed mid-session*, so
+  committing a change does not launder it past the review. Pre-existing dirty files
+  and untracked build junk are inert: a repo with thousands of stale artifacts costs
+  nothing per turn.
 - **Enforces the review automatically.** A `Stop` hook runs after Claude finishes: on
   a high-blast change it blocks completion **until a `dar ripple` review has returned a
-  `ship` verdict for that exact diff** (the receipt is keyed to a fingerprint of the
-  tracked diff *and* untracked file contents, so it can't be satisfied by ignoring
-  findings; a `block`/`revise` review does not clear the gate). Fixing findings changes
-  the diff and forces a fresh review. If the same unshipped diff is blocked repeatedly,
-  the gate stops looping, records an auditable `blocked-unresolved` state, and escalates
-  loudly to you rather than silently letting the change through. Contained changes pass
-  silently. A once-per-session `UserPromptSubmit` reminder nudges you to run the upstream
-  gates (`dar scope`, `dar plan-redteam`) on high-blast work, since those can't be
-  hook-enforced.
+  `ship` verdict for that exact state** (the receipt is keyed to a fingerprint of the
+  session's tracked diff *and* its new untracked contents, so it can't be satisfied by
+  ignoring findings; a `block`/`revise` review does not clear the gate). Fixing findings
+  changes the fingerprint and forces a fresh review. If the same unshipped change is
+  blocked repeatedly, the gate stops looping, records an auditable `blocked-unresolved`
+  state, and escalates loudly to you rather than silently letting the change through.
+  Contained changes pass silently. A once-per-session `UserPromptSubmit` reminder nudges
+  you to run the upstream gates (`dar scope`, `dar plan-redteam`) on high-blast work,
+  since those can't be hook-enforced.
 - **Stays a check, not a rubber stamp.** Codex runs read-only and adversarially; an
   on-demand `dar canary` exercises the reviewer on a planted fail-open fixture to
   confirm it still specifically identifies that hole. The automatic gate enforces review
@@ -51,9 +57,13 @@ The blast-radius graph is built in pure Node — nothing is built inside your re
 it, `dar setup` will wire it in as a richer accelerator, but the plugin never installs
 or runs it on its own. Run `dar doctor --repo <path>` to check the environment.
 
+**Start a fresh session after installing** — the hooks and the session baseline are
+wired up by the `SessionStart` hook, and `/reload-plugins` does not re-run it.
+
 After that the review fires on its own when a change is big enough — you don't type a
 review command yourself. `DAR_ENFORCE=off` turns the automation off; `block` makes the
-commit gate refuse instead of advise. The slash commands below are optional.
+commit gate refuse instead of advise (a `ship` receipt clears it either way). The
+slash commands below are optional.
 
 ## The graph backend
 
@@ -78,8 +88,13 @@ dar probe        --repo P --diff-base main          # survey vs skip? (fast, no 
 dar scope        --repo P --task "..." --diff-base main   # map the blast radius first
 dar plan-redteam --repo P --plan plan.md            # Codex attacks the plan, pre-code
 dar ripple       --repo P --diff-base main          # post-diff independent review
+                                                    # (the Stop gate hands out the
+                                                    #  --baseline form instead)
 dar verify       --repo P                           # run the repo's tests/typecheck/lint gates
 dar canary                                          # is the reviewer still sharp?
+dar trust        --repo P                           # allow P's .dar.thresholds/.dar.config.sh
+dar baseline     --repo P                           # re-frame the session after a deliberate
+                                                    #  branch switch / large rebase
 ```
 
 The same gates are available as slash commands. Installed as a plugin, they are
@@ -98,8 +113,9 @@ the commands into `~/.claude/commands` without a plugin namespace.)
 
 ## How the gate decides
 
-The probe computes each changed file's **consumer set** (reverse-dependency
-traversal) and surveys if any of: fan-out over threshold, subsystem spread over
+The probe measures the **session delta** (baseline-scoped; the whole dirty state
+only when no baseline exists), computes each changed file's **consumer set**
+(reverse-dependency traversal), and surveys if any of: fan-out over threshold, subsystem spread over
 threshold, a **hot-path** file (auth, migrations, shared plumbing…), an **unresolved**,
 **unsupported-language**, or **opaque control-plane** file (a plugin manifest, schema,
 CI config, lockfile — anything non-code we can't prove has zero blast radius; only
@@ -116,10 +132,15 @@ survey is a few bounded minutes, so the gate is deliberately biased toward revie
   hardcoded; a repo's config cannot widen the sandbox, mutate `PATH`, or shadow the
   binary to escape it. (The optional `/codex:adversarial-review` route runs under the
   Codex plugin's own settings, not `dar`'s.)
-- **`.dar.config.sh` is executed as shell** — like direnv, git hooks, or
-  `package.json` scripts. Only run the manual gates on a repo you trust enough to run
-  Claude Code / Codex on. `DAR_NO_REPO_CONFIG=1` refuses to source it; the auto-firing
-  commit hook **never** sources it (defaults only).
+- **Repo-provided config requires explicit trust.** `.dar.config.sh` is executed as
+  shell — like direnv, git hooks, or `package.json` scripts — so it runs **only for
+  repos you have registered with `dar trust`** (the registry lives outside the repo;
+  a clone cannot self-trust), and only in the manual gates. `DAR_NO_REPO_CONFIG=1`
+  refuses it even then. The auto-firing hooks never execute repo shell at all: their
+  only per-repo tuning is **`.dar.thresholds`**, a plain KEY=VALUE file that is
+  *parsed*, whitelisted (thresholds, extra hot-path/exclude patterns — never
+  `DAR_ENFORCE`), honored only for trusted repos, and never allowed to override
+  values you set in your own environment.
 - **Run artifacts** (scope maps, diffs) go to `${XDG_STATE_HOME:-~/.local/state}/dual-agent-review/runs`,
   not inside a repo, so one repo's review material can't leak into another.
 
@@ -132,7 +153,10 @@ bin/dar              CLI entrypoint (added to the Claude session's PATH by the p
 lib/graph.mjs        the in-house pure-Node dependency graph (default backend)
 lib/blast-radius.mjs the survey-vs-skip probe (native graph, or graphify if current)
 lib/codex.sh         Codex wrapper for dar's scope/plan-redteam/ripple/canary (read-only, absolute-path)
-lib/fingerprint.sh   diff fingerprint + review receipt (how the Stop gate hard-verifies)
+lib/baseline.mjs     session baseline: capture / delta / session fingerprint
+lib/fingerprint.sh   state fingerprint + review receipt (how the Stop gate hard-verifies)
+lib/trust.sh         the user-side repo trust registry (dar trust/untrust)
+lib/thresholds.sh    .dar.thresholds parser (hook-safe, whitelisted, never executed)
 scripts/             stop-gate, prompt-advisory, precommit-gate, bootstrap; gates (scope/plan-redteam/ripple); canary, setup, doctor
 schemas/             structured-output JSON Schemas (scope, plan-redteam, review)
 prompts/             adversarial role prompts (skepticism-first, no style nits)
