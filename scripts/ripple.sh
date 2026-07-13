@@ -68,10 +68,12 @@ if [[ -n "$BASELINE" ]]; then
       const fs = require("fs");
       const d = JSON.parse(fs.readFileSync(0));
       // NUL-TERMINATE every record (not join): `read -d ""` drops a final
-      // unterminated entry, which would silently omit the last file.
+      // unterminated entry, which would silently omit the last file. The context
+      // list carries DELETIONS too — the reviewer must see that a file was removed.
+      const ctxList = d.untrackedDelta.concat(d.deletedUntracked || []);
       fs.writeFileSync(process.argv[1], d.delta.map(f => f + "\0").join(""));
-      fs.writeFileSync(process.argv[2], d.untrackedDelta.map(f => f + "\0").join(""));
-      process.stdout.write(String(d.untrackedDelta.length));
+      fs.writeFileSync(process.argv[2], ctxList.map(f => f + "\0").join(""));
+      process.stdout.write(String(ctxList.length));
     } catch { process.stdout.write("FAIL"); }' "$DELTA_PATHS" "$UNTRACKED_LIST" 2>/dev/null || echo FAIL)"
   if [[ "$d_un" == "FAIL" ]]; then
     echo "dar ripple: could not stage the session file lists for the review context — failing secure, no review run." >&2
@@ -117,10 +119,21 @@ DIFF_BYTES=$(wc -c < "$FULL_DIFF" | tr -d ' ')
 # the session's new untracked files; legacy mode reviews all untracked files (matching
 # what each mode's fingerprint covers). Bounded: 40 KB/file, 150 KB total; binary
 # files are named with a size placeholder.
+TRUNCATED=0   # set whenever the reviewer is shown LESS than the receipt would cover
 emit_untracked_section() { # NUL-separated list on stdin
-  local budget=150000 per=40000 f sz raw8 txt8
-  echo "## New files in this change (untracked — not visible in the diff above)"
+  local budget="${DAR_RIPPLE_UNTRACKED_CAP:-200000}" per="${DAR_RIPPLE_FILE_CAP:-60000}" f sz raw8 txt8
+  echo "## New/removed files in this change (untracked — not visible in the diff above)"
   while IFS= read -r -d '' f; do
+    # Symlinks are a trust boundary: NEVER read through one (a repo symlink to
+    # ~/.ssh/... would land host secrets in the review context and run artifacts).
+    if [ -L "${REPO}/${f}" ]; then
+      printf '\n### %s\n[symlink → %s — content not read]\n' "$f" "$(readlink "${REPO}/${f}" 2>/dev/null || echo '?')"
+      continue
+    fi
+    if [ ! -e "${REPO}/${f}" ]; then
+      printf '\n### %s\n[DELETED this session]\n' "$f"
+      continue
+    fi
     [ -f "${REPO}/${f}" ] || continue
     sz=$(wc -c < "${REPO}/${f}" 2>/dev/null | tr -d ' '); [ -n "$sz" ] || sz=0
     printf '\n### %s (%s bytes)\n' "$f" "$sz"
@@ -131,23 +144,28 @@ emit_untracked_section() { # NUL-separated list on stdin
     txt8="$(head -c 8000 "${REPO}/${f}" 2>/dev/null | LC_ALL=C tr -d '\0' | wc -c | tr -d ' ')"
     if [ "${raw8:-0}" != "${txt8:-0}" ]; then
       echo '[binary content omitted]'
+      TRUNCATED=1
       continue
     fi
-    if [ "$budget" -le 0 ]; then echo '[content omitted: context budget exhausted]'; continue; fi
+    if [ "$budget" -le 0 ]; then echo '[content omitted: context budget exhausted]'; TRUNCATED=1; continue; fi
     local take=$per; [ "$take" -gt "$budget" ] && take=$budget
     echo '```'
     head -c "$take" "${REPO}/${f}" 2>/dev/null
     echo; echo '```'
-    [ "$sz" -gt "$take" ] && printf '[truncated to %s of %s bytes]\n' "$take" "$sz"
+    if [ "$sz" -gt "$take" ]; then printf '[truncated to %s of %s bytes]\n' "$take" "$sz"; TRUNCATED=1; fi
     budget=$(( budget - (sz < take ? sz : take) ))
   done
 }
 
+DIFF_CAP="${DAR_RIPPLE_DIFF_CAP:-600000}"
 CTX="${RUN}/context.md"
 {
   echo "## The diff under review"
-  head -c 200000 "$FULL_DIFF"
-  [ "$DIFF_BYTES" -gt 200000 ] && printf '\n\n[diff truncated to 200000 of %s bytes for the review context]\n' "$DIFF_BYTES"
+  head -c "$DIFF_CAP" "$FULL_DIFF"
+  if [ "$DIFF_BYTES" -gt "$DIFF_CAP" ]; then
+    printf '\n\n[diff truncated to %s of %s bytes for the review context]\n' "$DIFF_CAP" "$DIFF_BYTES"
+    TRUNCATED=1
+  fi
   echo
   if [[ -n "$BASELINE" ]]; then
     [[ "${d_un:-0}" -gt 0 ]] && emit_untracked_section < "$UNTRACKED_LIST"
@@ -180,10 +198,18 @@ if dar_codex_run "${DAR_HOME}/prompts/ripple.md" "$CTX" "${DAR_HOME}/schemas/rev
   CONFORM="$(dar_json scope_conformance.respected_scope_map "$OUT")"
   echo "→ verdict: ${VERDICT}   scope-respected: ${CONFORM}   (findings: $OUT)"
   dar_json findings "$OUT" | node -e 'JSON.parse(require("fs").readFileSync(0)).forEach(f=>console.log(`  [${f.severity}/${f.category}] ${f.claim}`))' 2>/dev/null || true
+  # A ship verdict over a TRUNCATED context is not a ship: the receipt's fingerprint
+  # covers the FULL change, but the reviewer saw less than that. Downgrade to
+  # `partial` (never releases the gate) and say what to do about it.
+  if [[ "$VERDICT" == "ship" && "$TRUNCATED" == "1" ]]; then
+    VERDICT="partial"
+    echo "dar ripple: the reviewer approved, but the context was TRUNCATED (change larger than the review caps) — recording 'partial', which does NOT clear the gate. Split the change, raise DAR_RIPPLE_DIFF_CAP/DAR_RIPPLE_FILE_CAP/DAR_RIPPLE_UNTRACKED_CAP if your reviewer's context allows, or review the remainder manually (/codex:adversarial-review)." >&2
+  fi
   # Record the receipt WITH the verdict, keyed to the fingerprint the Stop gate will
   # recompute (session fingerprint when a baseline framed this review, else legacy).
-  # The gate releases only on `ship`; a block/revise receipt matches but does NOT
-  # clear (#7). Fixing findings changes the fingerprint → the next review starts fresh.
+  # The gate releases only on `ship`; a block/revise/partial receipt matches but does
+  # NOT clear (#7). Fixing findings changes the fingerprint → the next review starts
+  # fresh.
   if [[ -n "$BASELINE" ]]; then
     FP="$(dar_session_fingerprint "$REPO" "$BASELINE")"
     dar_write_receipt_fp "$REPO" "$FP" "$VERDICT"

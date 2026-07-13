@@ -23,23 +23,32 @@ JSON
 SH
 chmod +x "$STUB"
 
-# create a >200KB tracked change
-node -e 'process.stdout.write("x".repeat(400000)+"\n")' > "$R/big.txt"
+# create a tracked change larger than the diff cap (default 600 KB)
+node -e 'process.stdout.write("x".repeat(900000)+"\n")' > "$R/big.txt"
 git_commit "$R" big
-node -e 'process.stdout.write("y".repeat(400000)+"\n")' > "$R/big.txt"   # ~400KB working diff
+node -e 'process.stdout.write("y".repeat(900000)+"\n")' > "$R/big.txt"   # ~900KB working diff
 
 rc=0
 DAR_CODEX_BIN="$STUB" bash "$DAR_ROOT/scripts/ripple.sh" --repo "$R" --diff-base HEAD >/dev/null 2>&1 || rc=$?
 assert_true "large diff: reviewer ran, no SIGPIPE (rc≠141)" test "$rc" -ne 141
-assert_eq "large diff: ship verdict → exit 0" "0" "$rc"
+# A ship verdict over a TRUNCATED context must NOT ship: the receipt would cover
+# content the reviewer never saw. Downgraded to 'partial' (non-release), exit 3.
+assert_eq "truncated context: ship downgraded (exit 3)" "3" "$rc"
 
 # truncation marker present in the built context
-ctx="$(cat "$DAR_RUNS_DIR"/*-ripple-*/context.md 2>/dev/null | head -c 250000)"
+ctx="$(cat "$DAR_RUNS_DIR"/*-ripple-*/context.md 2>/dev/null | head -c 650000)"
 assert_contains "diff truncation surfaced in context" "$ctx" "diff truncated"
 
-# ship verdict was recorded in the receipt
+# the receipt records 'partial', which never clears the Stop gate
 # shellcheck source=/dev/null
 source "$DAR_ROOT/lib/fingerprint.sh"
+assert_eq "partial verdict recorded" "partial" "$(dar_receipt_verdict "$R")"
+
+# an UNtruncated review with the same stub ships normally (exit 0, ship receipt)
+git -C "$R" checkout -q -- big.txt
+echo small-change > "$R/seed.txt"
+rc=0; DAR_CODEX_BIN="$STUB" bash "$DAR_ROOT/scripts/ripple.sh" --repo "$R" --diff-base HEAD >/dev/null 2>&1 || rc=$?
+assert_eq "untruncated review ships (exit 0)" "0" "$rc"
 assert_eq "ship verdict recorded" "ship" "$(dar_receipt_verdict "$R")"
 
 # 3) Legacy mode: untracked contents ARE in the review context — the receipt
@@ -69,6 +78,18 @@ assert_eq "session receipt keyed to session fingerprint" "ship" "$(dar_receipt_v
 # 5) --baseline and --diff-base together are contradictory → usage error.
 rc=0; bash "$DAR_ROOT/scripts/ripple.sh" --repo "$R" --baseline "$BF" --diff-base HEAD >/dev/null 2>&1 || rc=$?
 assert_eq "baseline + diff-base rejected" "2" "$rc"
+
+# 6) Symlink trust boundary: an untracked symlink's TARGET content must never enter
+#    the review context or run artifacts — only the link target path is disclosed.
+SECRET="$(mktemp)"; echo "TOPSECRET-HOST-VALUE" > "$SECRET"
+ln -s "$SECRET" "$R/leak-link"
+out="$(DAR_CODEX_BIN="$STUB" bash "$DAR_ROOT/scripts/ripple.sh" --repo "$R" --diff-base HEAD 2>/dev/null || true)"
+rundir="$(printf '%s' "$out" | sed -n 's/.*(findings: \(.*\)\/review\.json)$/\1/p' | tail -1)"
+ctx="$(cat "$rundir/context.md")"
+assert_contains "symlink is named in context" "$ctx" "leak-link"
+assert_contains "symlink reported as symlink" "$ctx" "symlink"
+assert_not_contains "symlink target content NOT disclosed" "$ctx" "TOPSECRET-HOST-VALUE"
+rm -f "$SECRET" "$R/leak-link"
 
 rm -f "$STUB"
 finish

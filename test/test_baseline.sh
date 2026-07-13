@@ -134,4 +134,38 @@ out="$(printf '{"stop_hook_active":false,"session_id":"sessU"}' \
 assert_contains "committed comma-named change still blocks" "$out" '"decision":"block"'
 rm -rf "$R4"
 
+# 13) Deleting a PRE-EXISTING untracked file is a session change: it enters the
+#     delta and moves the fingerprint (a stale receipt must not survive it).
+R5="$(new_repo)"
+echo base > "$R5/a.txt"; git_commit "$R5" init
+echo cfg > "$R5/local-config.json"
+BF5="$(dar_baseline_path "$R5" sessD)"
+node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R5" --out "$BF5" >/dev/null
+fpA="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R5" --baseline "$BF5")"
+rm "$R5/local-config.json"
+d="$(node "$DAR_ROOT/lib/baseline.mjs" delta --repo "$R5" --baseline "$BF5")"
+assert_contains "deleted untracked file is in the delta" "$d" 'local-config.json'
+assert_contains "deletion reported as deletion" "$d" 'deletedUntracked'
+fpB="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R5" --baseline "$BF5")"
+assert_true "deletion moves the fingerprint" test "$fpA" != "$fpB"
+out="$(printf '{"stop_hook_active":false,"session_id":"sessD"}' \
+  | CLAUDE_PROJECT_DIR="$R5" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+    bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
+assert_contains "deletion gates at Stop" "$out" '"decision":"block"'
+rm -rf "$R5"
+
+# 14) Symlinks are hashed by TARGET PATH, never read through: editing the target's
+#     content must NOT change the fingerprint (no host-file state leaks into it).
+R6="$(new_repo)"
+echo base > "$R6/a.txt"; git_commit "$R6" init
+TGT="$(mktemp)"; echo one > "$TGT"
+BF6="$(dar_baseline_path "$R6" sessL)"
+node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R6" --out "$BF6" >/dev/null
+ln -s "$TGT" "$R6/cfg-link"
+fpL1="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R6" --baseline "$BF6")"
+echo two > "$TGT"     # mutate the TARGET, not the link
+fpL2="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R6" --baseline "$BF6")"
+assert_eq "target edits do not move the fingerprint (no read-through)" "$fpL1" "$fpL2"
+rm -rf "$R6" "$TGT"
+
 finish
