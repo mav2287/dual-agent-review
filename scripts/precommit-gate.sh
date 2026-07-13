@@ -71,8 +71,13 @@ DARBIN="${ROOT}/bin/dar"
 
 # Resolve the commit's actual target repo (leading `cd X && ...`, then `git -C Y`).
 _resolve_into() { # BASE REL → absolute physical path, or empty
-  local base="$1" rel="$2"
-  case "$rel" in "~") rel="$HOME";; "~/"*) rel="$HOME/${rel#\~/}";; esac
+  local base="$1" rel="$2" tilde='~'
+  # REL came out of a JSON string, so it never went through shell expansion —
+  # expand a literal leading tilde ourselves.
+  case "$rel" in
+    "$tilde") rel="$HOME";;
+    "$tilde"/*) rel="${HOME}${rel#"$tilde"}";;
+  esac
   (cd "$base" 2>/dev/null && cd "$rel" 2>/dev/null && pwd -P) || true
 }
 TARGET="$PROJ"
