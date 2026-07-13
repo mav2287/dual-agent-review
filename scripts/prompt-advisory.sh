@@ -14,7 +14,7 @@ set -uo pipefail
 input="$(cat 2>/dev/null || true)"
 sid="$(printf '%s' "$input" | node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(0)).session_id||"x"))}catch{process.stdout.write("x")}' 2>/dev/null || echo x)"
 
-DATA="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/dual-agent-review}"
+DATA="${DAR_STATE_DIR:-${HOME}/.claude/plugins/data/dual-agent-review}"
 mkdir -p "$DATA" 2>/dev/null || true
 marker="${DATA}/advised-${sid}"
 [[ -f "$marker" ]] && exit 0

@@ -18,8 +18,13 @@
 # modes share one implementation; the legacy-named wrappers compute the legacy
 # fingerprint themselves and remain for callers/tests that predate session mode.
 
-# dar_state_dir — where receipts live (plugin data dir, or a stable fallback).
-dar_state_dir() { echo "${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/dual-agent-review}"; }
+# dar_state_dir — where receipts/baselines/counters live. DELIBERATELY NOT
+# CLAUDE_PLUGIN_DATA: hooks get that injected per-plugin, but a CLI invocation from
+# the Bash tool inherits whatever leaked into the session env — observed live: the
+# codex plugin's bootstrap exported ITS data dir, dar ripple wrote receipts there,
+# and the Stop hook (reading dar's injected dir) never saw three SHIP verdicts. One
+# stable dar-owned path on both sides; DAR_STATE_DIR overrides for tests.
+dar_state_dir() { echo "${DAR_STATE_DIR:-${HOME}/.claude/plugins/data/dual-agent-review}"; }
 
 # dar_projkey REPO — stable per-repo key. Canonicalized to the PHYSICAL path at
 # this single choke point: every state file (receipt, baseline, block counter,

@@ -3,11 +3,11 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 echo "stop gate escalation (B7)"
 
-export CLAUDE_PLUGIN_DATA; CLAUDE_PLUGIN_DATA="$(mktemp -d)"
+export DAR_STATE_DIR; DAR_STATE_DIR="$(mktemp -d)"
 # shellcheck source=/dev/null
 source "$DAR_ROOT/lib/fingerprint.sh"
 
-R="$(new_repo)"; trap 'rm -rf "$R" "$CLAUDE_PLUGIN_DATA"' EXIT
+R="$(new_repo)"; trap 'rm -rf "$R" "$DAR_STATE_DIR"' EXIT
 echo '{"v":1}' > "$R/config.json"; git_commit "$R" init
 echo '{"v":2}' > "$R/config.json"   # working change to an opaque control file → survey=true
 
@@ -39,7 +39,7 @@ assert_not_contains "ship receipt releases (no block)" "$(OUT)" '"decision":"blo
 
 # 4) Escalation: same unshipped diff blocked past the cap, then stop_hook_active=true
 #    → stop looping, escalate loudly to stderr, exit 0, and record the marker.
-CLAUDE_PLUGIN_DATA="$(mktemp -d)"          # fresh counter state
+DAR_STATE_DIR="$(mktemp -d)"          # fresh counter state
 dar_write_receipt "$R" "block"
 run_stop false 2                           # block #1 (<2)
 run_stop false 2                           # block #2 (== cap)

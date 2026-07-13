@@ -4,11 +4,11 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 echo "precommit gate (B3)"
 
-export CLAUDE_PLUGIN_DATA; CLAUDE_PLUGIN_DATA="$(mktemp -d)"
+export DAR_STATE_DIR; DAR_STATE_DIR="$(mktemp -d)"
 # shellcheck source=/dev/null
 source "$DAR_ROOT/lib/fingerprint.sh"
 
-R="$(new_repo)"; OTHER="$(new_repo)"; trap 'rm -rf "$R" "$OTHER" "$CLAUDE_PLUGIN_DATA"' EXIT
+R="$(new_repo)"; OTHER="$(new_repo)"; trap 'rm -rf "$R" "$OTHER" "$DAR_STATE_DIR"' EXIT
 echo '{"v":1}' > "$R/config.json"; git_commit "$R" init
 echo '{"v":2}' > "$R/config.json"   # opaque control-file change → high blast
 echo base > "$OTHER/readme.txt"; git_commit "$OTHER" init   # OTHER starts clean
@@ -45,7 +45,7 @@ assert_eq "ship receipt releases (block)" "0" "$rc"
 dar_write_receipt_fp "$R" "$(dar_diff_fingerprint "$R")" revise
 rc=0; run_pre block '{"tool_input":{"command":"git commit -m x"}}' || rc=$?
 assert_eq "revise receipt does NOT release" "2" "$rc"
-rm -f "$CLAUDE_PLUGIN_DATA"/receipt-*
+rm -f "$DAR_STATE_DIR"/receipt-*
 
 # Cross-repo: `git -C OTHER commit` measures OTHER, not the session project.
 rc=0; run_pre block "{\"tool_input\":{\"command\":\"git -C $OTHER commit -m x\"}}" || rc=$?

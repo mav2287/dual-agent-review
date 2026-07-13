@@ -6,11 +6,11 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 echo "session baseline (stop gate scoping)"
 
-export CLAUDE_PLUGIN_DATA; CLAUDE_PLUGIN_DATA="$(mktemp -d)"
+export DAR_STATE_DIR; DAR_STATE_DIR="$(mktemp -d)"
 # shellcheck source=/dev/null
 source "$DAR_ROOT/lib/fingerprint.sh"
 
-R="$(new_repo)"; trap 'rm -rf "$R" "$CLAUDE_PLUGIN_DATA"' EXIT
+R="$(new_repo)"; trap 'rm -rf "$R" "$DAR_STATE_DIR"' EXIT
 echo base > "$R/app.txt"; git_commit "$R" init
 
 # Pre-existing noise the session did NOT create: untracked junk + a dirty tracked file.
@@ -26,7 +26,7 @@ OUT_F="$(mktemp)"; ERR_F="$(mktemp)"
 run_stop() { # [ACTIVE] [EXTRA_ENV as VAR=VAL ...]
   local active="${1:-false}"; shift 2>/dev/null || true
   printf '{"stop_hook_active":%s,"session_id":"sessA"}' "$active" \
-    | env "$@" CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+    | env "$@" CLAUDE_PROJECT_DIR="$R" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
       bash "$DAR_ROOT/scripts/stop-gate.sh" >"$OUT_F" 2>"$ERR_F"
 }
 OUT() { cat "$OUT_F"; }
@@ -60,7 +60,7 @@ run_stop
 assert_contains "post-review edit re-blocks" "$(OUT)" '"decision":"block"'
 
 # 6) Delta over DAR_MAX_DELTA_FILES → fail-secure block-once with a re-baseline hint.
-rm -f "$CLAUDE_PLUGIN_DATA"/receipt-* "$CLAUDE_PLUGIN_DATA"/blocks-*
+rm -f "$DAR_STATE_DIR"/receipt-* "$DAR_STATE_DIR"/blocks-*
 run_stop false DAR_MAX_DELTA_FILES=0
 assert_contains "oversized delta blocks" "$(OUT)" '"decision":"block"'
 assert_contains "oversized delta names the escape hatch" "$(OUT)" 'baseline --repo .'
@@ -73,7 +73,7 @@ bash "$DAR_ROOT/bin/dar" baseline --repo "$R" >/dev/null
 run_stop
 assert_not_contains "re-baseline makes current state inert" "$(OUT)" '"decision":"block"'
 assert_true "re-baseline recorded in the audit log" \
-  test -n "$(cat "$CLAUDE_PLUGIN_DATA"/rebaseline-log-* 2>/dev/null)"
+  test -n "$(cat "$DAR_STATE_DIR"/rebaseline-log-* 2>/dev/null)"
 echo new-work > "$R/after-rebase.json"
 run_stop
 assert_contains "work after re-baseline gates again" "$(OUT)" '"decision":"block"'
@@ -132,7 +132,7 @@ node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R4" --out "$BF4" >/dev/null
 echo '{"v":1}' > "$R4/we,ird.json"          # opaque control file, comma name
 git_commit "$R4" "commit the unsafe-named session change"
 out="$(printf '{"stop_hook_active":false,"session_id":"sessU"}' \
-  | CLAUDE_PROJECT_DIR="$R4" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+  | CLAUDE_PROJECT_DIR="$R4" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_contains "committed comma-named change still blocks" "$out" '"decision":"block"'
 rm -rf "$R4"
@@ -152,7 +152,7 @@ assert_contains "deletion reported as deletion" "$d" 'deletedUntracked'
 fpB="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R5" --baseline "$BF5")"
 assert_true "deletion moves the fingerprint" test "$fpA" != "$fpB"
 out="$(printf '{"stop_hook_active":false,"session_id":"sessD"}' \
-  | CLAUDE_PROJECT_DIR="$R5" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+  | CLAUDE_PROJECT_DIR="$R5" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_contains "deletion gates at Stop" "$out" '"decision":"block"'
 rm -rf "$R5"
@@ -191,12 +191,12 @@ BF7="$(dar_baseline_path "$R7" sessN)"
 node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R7" --out "$BF7" >/dev/null
 echo "remember the milk" > "$R7/notes.txt"
 out="$(printf '{"stop_hook_active":false,"session_id":"sessN"}' \
-  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_not_contains "new inert note passes silently" "$out" '"decision":"block"'
 echo 'module.exports = () => true' > "$R7/new-code.js"
 out="$(printf '{"stop_hook_active":false,"session_id":"sessN"}' \
-  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" DAR_STATE_DIR="$DAR_STATE_DIR" \
     bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
 assert_contains "new code file still gates" "$out" '"decision":"block"'
 rm -rf "$R7"

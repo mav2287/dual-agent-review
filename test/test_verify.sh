@@ -3,8 +3,8 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 echo "dar verify (L17)"
 
-export CLAUDE_PLUGIN_DATA; CLAUDE_PLUGIN_DATA="$(mktemp -d)"
-R="$(new_repo)"; trap 'rm -rf "$R" "$CLAUDE_PLUGIN_DATA"' EXIT
+export DAR_STATE_DIR; DAR_STATE_DIR="$(mktemp -d)"
+R="$(new_repo)"; trap 'rm -rf "$R" "$DAR_STATE_DIR"' EXIT
 
 # Unconfigured → NOT success (the merge authority must not green with no gates).
 rc=0; out="$(bash "$DAR_ROOT/scripts/verify.sh" --repo "$R" 2>&1)" || rc=$?

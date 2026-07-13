@@ -9,7 +9,9 @@
 # DAR_NO_REPO_CONFIG=1 remains a hard override that refuses .dar.config.sh even for
 # trusted repos.
 
-dar_trust_file() { echo "${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/dual-agent-review}/trusted-repos"; }
+# Same stable dar-owned dir as dar_state_dir — never CLAUDE_PLUGIN_DATA (a foreign
+# plugin's leaked value would silently split the registry between hook and CLI).
+dar_trust_file() { echo "${DAR_STATE_DIR:-${HOME}/.claude/plugins/data/dual-agent-review}/trusted-repos"; }
 
 # dar_repo_trusted REPO — 0 iff REPO's resolved physical path is registered.
 dar_repo_trusted() {

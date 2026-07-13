@@ -15,7 +15,7 @@
 set -uo pipefail
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-DATA="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/dual-agent-review}"
+DATA="${DAR_STATE_DIR:-${HOME}/.claude/plugins/data/dual-agent-review}"
 mkdir -p "$DATA"
 
 input="$(cat 2>/dev/null || true)"

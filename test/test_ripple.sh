@@ -4,10 +4,10 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 echo "ripple diff handling (B5)"
 
-export CLAUDE_PLUGIN_DATA; CLAUDE_PLUGIN_DATA="$(mktemp -d)"
+export DAR_STATE_DIR; DAR_STATE_DIR="$(mktemp -d)"
 export DAR_RUNS_DIR; DAR_RUNS_DIR="$(mktemp -d)/runs"
 
-R="$(new_repo)"; trap 'rm -rf "$R" "$CLAUDE_PLUGIN_DATA"' EXIT
+R="$(new_repo)"; trap 'rm -rf "$R" "$DAR_STATE_DIR"' EXIT
 echo "seed" > "$R/seed.txt"; git_commit "$R" init
 
 # 1) Invalid --diff-base must fail secure (exit 2), before any review.

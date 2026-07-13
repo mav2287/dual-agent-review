@@ -3,11 +3,11 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 echo "fingerprint + receipts (B7/N8)"
 
-export CLAUDE_PLUGIN_DATA; CLAUDE_PLUGIN_DATA="$(mktemp -d)"
+export DAR_STATE_DIR; DAR_STATE_DIR="$(mktemp -d)"
 # shellcheck source=/dev/null
 source "$DAR_ROOT/lib/fingerprint.sh"
 
-R="$(new_repo)"; trap 'rm -rf "$R" "$CLAUDE_PLUGIN_DATA"' EXIT
+R="$(new_repo)"; trap 'rm -rf "$R" "$DAR_STATE_DIR"' EXIT
 echo "base" > "$R/f.txt"; git_commit "$R" init
 echo "change" >> "$R/f.txt"
 

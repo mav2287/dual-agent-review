@@ -5,8 +5,8 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 echo "trust registry + thresholds calibration"
 
-export CLAUDE_PLUGIN_DATA; CLAUDE_PLUGIN_DATA="$(mktemp -d)"
-R="$(new_repo)"; trap 'rm -rf "$R" "$CLAUDE_PLUGIN_DATA"' EXIT
+export DAR_STATE_DIR; DAR_STATE_DIR="$(mktemp -d)"
+R="$(new_repo)"; trap 'rm -rf "$R" "$DAR_STATE_DIR"' EXIT
 
 # A hostile-ish thresholds file: whitelisted keys, a forbidden key (DAR_ENFORCE),
 # an unknown key, a shell-injection-shaped value, and a strengthening pattern.
