@@ -171,4 +171,23 @@ fpL2="$(node "$DAR_ROOT/lib/baseline.mjs" fingerprint --repo "$R6" --baseline "$
 assert_eq "target edits do not move the fingerprint (no read-through)" "$fpL1" "$fpL2"
 rm -rf "$R6" "$TGT"
 
+# 15) A session whose only change is a NEW positively-inert file (a scratch note)
+#     passes silently — while a new CODE file still gates (no consumers visible ≠
+#     no consumers).
+R7="$(new_repo)"
+echo base > "$R7/a.txt"; git_commit "$R7" init
+BF7="$(dar_baseline_path "$R7" sessN)"
+node "$DAR_ROOT/lib/baseline.mjs" capture --repo "$R7" --out "$BF7" >/dev/null
+echo "remember the milk" > "$R7/notes.txt"
+out="$(printf '{"stop_hook_active":false,"session_id":"sessN"}' \
+  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+    bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
+assert_not_contains "new inert note passes silently" "$out" '"decision":"block"'
+echo 'module.exports = () => true' > "$R7/new-code.js"
+out="$(printf '{"stop_hook_active":false,"session_id":"sessN"}' \
+  | CLAUDE_PROJECT_DIR="$R7" CLAUDE_PLUGIN_ROOT="$DAR_ROOT" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+    bash "$DAR_ROOT/scripts/stop-gate.sh" 2>/dev/null)"
+assert_contains "new code file still gates" "$out" '"decision":"block"'
+rm -rf "$R7"
+
 finish
