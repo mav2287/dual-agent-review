@@ -3,3 +3,6 @@ node_modules/
 *.err
 *.log
 .DS_Store
+# graphify's generated graph is a per-repo build artifact of the optional accelerator,
+# not plugin source — never commit it (the probe rebuilds/falls back to the native graph).
+graphify-out/

@@ -1,14 +1,33 @@
 # shellcheck shell=bash
 # dual-agent-review — default configuration.
 #
-# Overridable per-target-repo by a `.dar.config.sh` in the repo root; it is
-# sourced AFTER this file (see lib/common.sh), so it wins.
+# Layering (weakest to strongest):
+#   1. these defaults
+#   2. <repo>/.dar.thresholds — plain KEY=VALUE, PARSED not executed, trusted repos
+#      only (lib/thresholds.sh) — the only per-repo tuning the automatic hooks read
+#   3. the user's environment — always wins over a repo file
+#   4. <repo>/.dar.config.sh — arbitrary shell, trusted repos + manual gates ONLY
+#      (sourced after this file by lib/common.sh's dar_load_repo_config)
+#
+# DAR_DEFAULTED records which keys THIS file supplied (vs. the user's environment),
+# so lib/thresholds.sh can let a repo file override defaults without ever overriding
+# an explicit user setting.
 #
 # The reviewer is the Codex CLI; the blast-radius graph is built in pure Node, with
 # graphify used as an accelerator only when its graph is present and current (at HEAD).
 #
 # Every value the Node probe reads is `export`ed — without that, a child `node`
 # process sees none of it and the hot-path tripwire silently disappears.
+
+DAR_DEFAULTED=""
+dar_default() { # VAR VALUE — set VAR only when unset/empty, and remember that we did.
+  local _v="$1"
+  if [ -z "$(eval "printf '%s' \"\${${_v}:-}\"")" ]; then
+    eval "${_v}=\"\$2\""
+    DAR_DEFAULTED="${DAR_DEFAULTED} ${_v}"
+  fi
+  export "${_v?}"
+}
 
 # ── Reviewer (Codex) ────────────────────────────────────────────────────────
 # Model + effort are INHERITED from ~/.codex/config.toml by default (empty = don't
@@ -22,15 +41,28 @@ export DAR_CODEX_WEBSEARCH="${DAR_CODEX_WEBSEARCH:-disabled}"
 # NOT configurable here — an adversarial reviewer must never mutate what it judges.
 
 # ── Blast-radius triage thresholds (calibrate per repo; bias toward surveying) ─
-export DAR_FANOUT_THRESHOLD="${DAR_FANOUT_THRESHOLD:-150}"   # consumer files → survey
-export DAR_SPREAD_THRESHOLD="${DAR_SPREAD_THRESHOLD:-3}"     # subsystems spanned → survey
-export DAR_BFS_DEPTH="${DAR_BFS_DEPTH:-3}"                   # reverse-dependency depth
-export DAR_MIN_CONFIDENCE="${DAR_MIN_CONFIDENCE:-0.4}"       # native-graph trust floor
+dar_default DAR_FANOUT_THRESHOLD 150   # consumer files → survey
+dar_default DAR_SPREAD_THRESHOLD 3     # subsystems spanned → survey
+dar_default DAR_BFS_DEPTH 3            # reverse-dependency depth
+dar_default DAR_MIN_CONFIDENCE 0.4     # native-graph trust floor
+
+# ── Session-baseline gating ─────────────────────────────────────────────────
+# The Stop gate measures the SESSION DELTA against the baseline captured at
+# SessionStart. A delta larger than DAR_MAX_DELTA_FILES is treated as unmeasurable
+# (block-once, with a re-baseline hint) rather than silently skipped.
+dar_default DAR_MAX_STOP_BLOCKS 4
+dar_default DAR_MAX_STOP_BLOCKS_NONSHIP 6   # explicit reviewer refusal holds longer
+dar_default DAR_MAX_DELTA_FILES 500
+# DAR_EXCLUDE / DAR_INERT_EXTRA / DAR_OPAQUE_EXTRA: newline-separated regex lists,
+# empty by default; per-repo values come from a TRUSTED repo's .dar.thresholds.
+dar_default DAR_EXCLUDE ""
+dar_default DAR_INERT_EXTRA ""
+dar_default DAR_OPAQUE_EXTRA ""
 
 # ── Hot-path tripwire ───────────────────────────────────────────────────────
 # Changing any file matching these ALWAYS surveys, regardless of graph fan-out.
-# Framework-generic high-cost surfaces; add YOUR app's danger zones in the target
-# repo's .dar.config.sh (see examples/example.dar.config.sh).
+# Framework-generic high-cost surfaces; add YOUR app's danger zones via
+# DAR_HOTPATHS_EXTRA in the target repo's .dar.thresholds (or .dar.config.sh).
 # A plain single-quoted multi-line string — no here-doc, so it can't fail in a
 # read-only/no-TMPDIR shell and silently leave the list empty.
 if [ -z "${DAR_HOTPATHS:-}" ]; then
@@ -46,7 +78,15 @@ yarn\.lock$
 docker-compose
 (^|/)\.github/workflows/
 (^|/)\.env
-tsconfig.*\.json$'
+tsconfig.*\.json$
+(^|/)prompts/
+(^|/)skills/
+(^|/)commands/
+(^|/)hooks?/
+(^|/)\.claude/
+(^|/)\.codex/
+(^|/)(CLAUDE|AGENTS|GEMINI)\.md$'
+  DAR_DEFAULTED="${DAR_DEFAULTED} DAR_HOTPATHS"
 fi
 export DAR_HOTPATHS
 

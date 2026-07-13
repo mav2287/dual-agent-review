@@ -59,24 +59,42 @@ echo "── dar canary: running the real review over a planted fail-secure hole
 dar_codex_run "${DAR_HOME}/prompts/ripple.md" "$CTX" "${DAR_HOME}/schemas/review.schema.json" "$OUT" "$ERR" "$TMP" \
   || { echo "dar canary: review invocation failed (rc=$?); see $ERR" >&2; exit 1; }
 
-# 4) Did the reviewer catch it? Look for a fail-secure/security finding OR a
-#    verdict that refuses to ship.
-caught="$(node -e '
+# 4) Did the reviewer SPECIFICALLY catch the planted fault? A true catch is a
+#    fail-secure/security finding (or evidence that names the planted fail-open),
+#    NOT merely a non-ship verdict — a generic "don't ship" that never identifies the
+#    hole is reviewer noise, not detection. We record that refusal separately so a
+#    reviewer that refused-without-identifying is not scored as a clean catch.
+read -r caught refused <<<"$(node -e '
 try {
   const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  const hit = (d.findings || []).some(f =>
-    f.category === "fail-secure-hole" || f.category === "security" ||
-    /fail[- ]?open|allow|deny|catch|error/i.test((f.claim || "") + " " + (f.evidence || "")));
-  process.stdout.write(String(hit && d.verdict !== "ship"));
-} catch { process.stdout.write("false"); }' "$OUT" 2>/dev/null || echo false)"
+  // A specific catch must reference the PLANTED SITE (the fixture file/function),
+  // not merely be any security-category finding — an unrelated security nit must
+  // not score as detection of the planted hole.
+  const identified = (d.findings || []).some(f => {
+    const txt = [f.claim, f.evidence, f.anchor].filter(Boolean).join(" ");
+    const atSite = /access\.js|canAccess/i.test(txt);
+    const failOpenShaped = f.category === "fail-secure-hole" || f.category === "security" ||
+      /fail[- ]?open|allows? (access )?on error|returns? true (on|in) (the )?catch/i.test(txt);
+    return atSite && failOpenShaped;
+  });
+  const refused = d.verdict !== "ship";
+  // CAUGHT requires BOTH: naming the planted fault AND refusing to ship it. A
+  // reviewer that identifies the hole yet ships anyway is not a healthy gate.
+  process.stdout.write(`${identified && refused} ${refused}`);
+} catch { process.stdout.write("false false"); }' "$OUT" 2>/dev/null || echo "false false")"
 
 verdict="$(dar_json verdict "$OUT" 2>/dev/null || echo '?')"
 echo "→ reviewer verdict: ${verdict}"
 if [[ "$caught" == "true" ]]; then
-  echo "✓ CANARY CAUGHT — reviewer flagged the planted fail-open hole. Passed this check."
+  echo "✓ CANARY CAUGHT — reviewer specifically identified the planted fail-open hole. Passed this check."
   exit 0
+elif [[ "$refused" == "true" ]]; then
+  echo "✗ CANARY MISSED — reviewer refused to ship but did NOT identify the planted fail-open"
+  echo "  bug. A generic refusal is not detection; do not trust its findings until it passes a"
+  echo "  fresh canary (sharpen the prompt, raise effort, or escalate)."
+  exit 3
 else
-  echo "✗ CANARY MISSED — reviewer did NOT flag the planted fail-open bug. Do not trust its"
-  echo "  verdicts until it passes a fresh canary: sharpen the prompt, raise effort, or escalate."
+  echo "✗ CANARY MISSED — reviewer did NOT flag the planted fail-open bug and was willing to ship."
+  echo "  Do not trust its verdicts until it passes a fresh canary."
   exit 3
 fi

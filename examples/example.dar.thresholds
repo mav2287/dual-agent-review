@@ -1,0 +1,22 @@
+# Example <repo>/.dar.thresholds — hook-safe per-repo calibration.
+#
+# Plain KEY=VALUE, parsed line-by-line (never executed), honored ONLY after the
+# user runs `dar trust --repo <repo>`, and never able to override a value the
+# user set in their own environment. Unknown keys, malformed values, and
+# DAR_ENFORCE are ignored. Repeat a *_EXTRA / DAR_EXCLUDE key for more patterns.
+
+# Raise the survey thresholds for a large monorepo where fan-out 150 is routine:
+DAR_FANOUT_THRESHOLD=400
+DAR_SPREAD_THRESHOLD=5
+
+# Add YOUR app's danger zones (always-survey, regardless of measured fan-out):
+DAR_HOTPATHS_EXTRA=(^|/)app/_lib/authz/
+DAR_HOTPATHS_EXTRA=(^|/)prisma/
+
+# Exclude generated noise from the session delta (keep this tight — every
+# exclusion is a place the gate cannot see):
+DAR_EXCLUDE=^\.next(\.rootowned[^/]*)?/
+DAR_EXCLUDE=^coverage/
+
+# Session-delta cap before the gate declares the change unmeasurable:
+DAR_MAX_DELTA_FILES=800

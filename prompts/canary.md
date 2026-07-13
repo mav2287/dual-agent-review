@@ -13,18 +13,22 @@ on-demand check you run when you want to confirm the reviewer is still sharp.
    now returns `true` (fail-*open* — allows access on error).
 3. Runs the **real review path** over that planted diff — the same `prompts/ripple.md`
    role prompt and `schemas/review.schema.json` Codex uses for a normal ripple check.
-4. Checks the reviewer's output: a healthy reviewer raises a `fail-secure-hole` /
-   `security` finding (or refuses to `ship`); a habituated one misses it.
+4. Checks the reviewer's output: a healthy reviewer **specifically identifies** the
+   hole — a `fail-secure-hole` / `security` finding, or evidence that names the planted
+   fail-open. A merely non-`ship` verdict that never identifies the fault is recorded as
+   *refused-without-identifying* and does **not** count as a catch (a generic "don't
+   ship" is reviewer noise, not detection).
 5. Reports **caught** (exit 0) or **MISSED** (exit 3), and deletes the throwaway repo.
 
 It touches nothing in your real repos, and it is not scheduled — there is no periodic
 mode. Run it whenever you want to sanity-check the reviewer.
 
 ## Outcomes
-- **Caught** → the reviewer flagged the planted fault; it passed this check.
-- **MISSED** → the reviewer did not flag a deliberately planted fail-open bug. Don't
-  trust its verdicts until it passes a fresh canary: sharpen the prompt, raise the
-  Codex effort, or hand the review to a human.
+- **Caught** → the reviewer specifically identified the planted fault; it passed this check.
+- **MISSED** → the reviewer did not identify the deliberately planted fail-open bug
+  (whether it refused to ship on other grounds or was willing to ship). Don't trust its
+  verdicts until it passes a fresh canary: sharpen the prompt, raise the Codex effort, or
+  hand the review to a human.
 
 The planted fault (a fail-open error path) is a single fixture embedded in
 `scripts/canary.sh`. Broadening it to a rotating catalogue of fault types is possible

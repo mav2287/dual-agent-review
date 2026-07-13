@@ -18,11 +18,13 @@ never a model's "looks good."
 **The post-diff review is hook-enforced; the upstream gates are behavioral.**
 
 A `Stop` hook fires after you respond: on a high-blast change it blocks completion
-until an actual `dar ripple` review has run for that exact diff. **When you see that
-block, run `dar ripple --repo . --diff-base HEAD`** — that is what clears the gate
-(a deeper `/codex:adversarial-review` pass is fine too, but only `dar ripple` records
-the review) — address any real findings, then finish. Fixing findings changes the
-diff, so the gate will (correctly) ask for a fresh review of the new state.
+until `dar ripple` returns a **`ship`** verdict for that exact diff — a `block`/`revise`
+review does NOT clear it. **When you see that block, run `dar ripple --repo . --diff-base
+HEAD`**, address the findings, and re-run until it ships (a deeper
+`/codex:adversarial-review` pass is fine too, but only `dar ripple` records the ship
+receipt). Fixing findings changes the diff, so the gate re-reviews the new state. If the
+same unshipped diff is blocked repeatedly, the gate stops looping, records a
+`blocked-unresolved` marker, and escalates to the human rather than silently passing.
 
 **Standing trigger for the upstream gates (NOT hook-enforced — this is your own
 behavior):** whenever you produce a plan for a change that will touch high-blast
@@ -65,11 +67,12 @@ It re-measures the ACTUAL diff's impact and compares to the scope map.
   → the change escaped its frame; investigate before anything else.
 - Fix `block`/`revise` findings, re-run **at most twice** (`DAR_MAX_IMPL_REVIEW_CYCLES`).
 
-**Gate 5 — Verify + merge (manual policy, not enforced by any script).** Run the
-repo's deterministic gates (lint, typecheck, tests, mutation, migration-lint, i18n).
-Then a **fresh** Claude self-audit (a subagent, not this context). Do not merge unless:
-deterministic gates green **AND** Claude self-audit clean **AND** Codex `ship` **AND**
-no unresolved accepted-risk.
+**Gate 5 — Verify + merge (manual policy, not enforced by the Stop hook).** Run the
+repo's deterministic gates — `dar verify --repo REPO` runs the ones configured in
+`.dar.config.sh` (typecheck/lint/tests); also run mutation, migration-lint, i18n as
+applicable. Then a **fresh** Claude self-audit (a subagent, not this context). Do not
+merge unless: deterministic gates green **AND** Claude self-audit clean **AND** Codex
+`ship` **AND** no unresolved accepted-risk.
 
 ## Reconciliation & escalation (do not skip)
 - **Disagreement is a signal, not a vote.** When you and Codex conflict, gather

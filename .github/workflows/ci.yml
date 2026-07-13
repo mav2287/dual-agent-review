@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The plugin's whole purpose is enforcement reliability, so CI runs the full suite on
+# BOTH macOS (stock /bin/bash 3.2 — where the empty-array wrapper crash lived) and Linux
+# (modern bash), and makes strict plugin validation a required check.
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Pin a known-good Claude Code CLI so `claude plugin validate --strict` always runs
+      # (do not gate on "if available"). Bump deliberately alongside a verified release.
+      CLAUDE_VERSION: "2.1.207"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Report bash version
+        run: bash --version | head -1
+
+      - name: Install ShellCheck (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Install ShellCheck (macOS)
+        if: runner.os == 'macOS'
+        run: brew install shellcheck
+
+      - name: ShellCheck (production shell)
+        run: shellcheck -e SC2016 lib/*.sh scripts/*.sh bin/dar config/defaults.sh
+
+      - name: ShellCheck (tests)
+        run: shellcheck -e SC2016 -e SC1091 -e SC2015 test/*.sh
+
+      - name: Install Claude Code CLI (pinned)
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_VERSION}"
+
+      - name: Strict plugin + marketplace validation (required)
+        run: claude plugin validate . --strict
+
+      - name: Test suite (static + node unit + bash behavior)
+        run: bash test/run.sh
